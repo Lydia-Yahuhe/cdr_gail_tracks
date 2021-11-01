@@ -16,7 +16,6 @@ from baselines import logger
 from baselines.common import colorize
 from baselines.common.mpi_adam import MpiAdam
 from baselines.common.cg import cg
-from baselines.gail.statistics import stats
 
 
 def traj_segment_generator(pi, env, reward_giver, horizon, stochastic):
@@ -31,30 +30,21 @@ def traj_segment_generator(pi, env, reward_giver, horizon, stochastic):
 
     # Initialize history arrays
     obs = np.array([ob for _ in range(horizon)])
-    true_rews = np.zeros(horizon, 'float64')
-    rews = np.zeros(horizon, 'float64')
-    vpreds = np.zeros(horizon, 'float64')
+    true_rews = np.zeros(horizon, 'float32')
+    rews = np.zeros(horizon, 'float32')
+    vpreds = np.zeros(horizon, 'float32')
     news = np.zeros(horizon, 'int32')
-    acs = np.zeros([horizon, 1], 'int32')
+    acs = np.zeros([horizon, env.action_space.n], 'float32')
     result = []
-    # logger.log('----------trpo_mpi_generator----------')
-    # print('obs shape:', obs.shape)
-    # print('true_rews shape:', true_rews.shape)
-    # print('rews shape:', rews.shape)
-    # print('vpreds shape:', vpreds.shape)
-    # print('news shape:', news.shape)
-    # print('acs shape:', acs.shape)
-    # logger.log('---------------------------------------')
 
     while True:
-        ac, vpred = pi.act(stochastic, ob)
+        ac, v_predict = pi.act(ob, stochastic=stochastic)
         # Slight weirdness here because we need value function at time T
         # before returning segment [0, T-1] so we get the correct terminal value
         if t > 0 and t % horizon == 0:
-            yield {"ob": obs, "rew": rews, "new": news, "ac": acs,
-                   "vpred": vpreds, "nextvpred": vpred * (1 - new),
-                   "ep_rets": ep_rets, "ep_true_rets": ep_true_rets, 'result': result}
-            _, vpred = pi.act(stochastic, ob)
+            yield {"ob": obs, "rew": rews, "new": news, "ac": acs, "vpred": vpreds, "ep_rets": ep_rets,
+                   "nextvpred": v_predict * (1 - new), "ep_true_rets": ep_true_rets, 'result': result}
+            _, v_predict = pi.act(ob, stochastic=stochastic)
             # Be careful!!! if you change the downstream algorithm to aggregate
             # several of these batches, then be sure to do a deepcopy
             ep_rets = []
@@ -62,12 +52,12 @@ def traj_segment_generator(pi, env, reward_giver, horizon, stochastic):
 
         i = t % horizon
         obs[i] = ob
-        vpreds[i] = vpred
+        vpreds[i] = v_predict
         news[i] = new
         acs[i] = ac
 
-        rew = reward_giver.get_reward(ob, ac)
-        ob, true_rew, new, info = env.step(ac[0][0])
+        ob, true_rew, new, info = env.step(ac)
+        rew = reward_giver.get_reward(ob)
         rews[i] = rew
         true_rews[i] = true_rew
 
@@ -80,7 +70,6 @@ def traj_segment_generator(pi, env, reward_giver, horizon, stochastic):
             cur_ep_true_ret = 0
             ob = env.reset()
             result.append(float(info['result']))
-
             print('step:', t)
         t += 1
 
@@ -94,26 +83,25 @@ def add_vtarg_and_adv(seg, gamma, lam):
     rew = seg["rew"]
     lastgaelam = 0
     for t in reversed(range(T)):
-        nonterminal = 1-new[t+1]
-        delta = rew[t] + gamma * vpred[t+1] * nonterminal - vpred[t]
+        nonterminal = 1 - new[t + 1]
+        delta = rew[t] + gamma * vpred[t + 1] * nonterminal - vpred[t]
         gaelam[t] = lastgaelam = delta + gamma * lam * nonterminal * lastgaelam
     seg["tdlamret"] = seg["adv"] + seg["vpred"].reshape([-1, ])
 
 
 def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, entcoeff,
           save_per_iter, save_dir, timesteps_per_batch, gamma, lam, max_kl, cg_iters,
-          cg_damping=1e-2, vf_stepsize=3e-4, d_step_size=3e-4, vf_iters=3, max_iters=0):
-
+          cg_damping=1e-2, vf_stepsize=3e-4, d_step_size=3e-4, vf_iters=3, max_iters=0, dtype=tf.float32):
     n_workers = MPI.COMM_WORLD.Get_size()
     rank = MPI.COMM_WORLD.Get_rank()
     np.set_printoptions(precision=3)
 
     # Setup losses and stuff
     # Placeholder
-    atarg_ph = tf.placeholder(dtype=tf.float64, shape=[None])  # Target advantage function (if applicable)
-    ret_ph = tf.placeholder(dtype=tf.float64, shape=[None])  # Empirical return
-    ob_ph = U.get_placeholder_cached(name="obs_ph")
-    ac_ph = tf.placeholder(dtype=tf.int64, shape=[None, 1])  # Empirical return
+    atarg_ph = tf.placeholder(dtype=dtype, shape=[None])  # Target advantage function (if applicable)
+    ret_ph = tf.placeholder(dtype=dtype, shape=[None])  # Empirical return
+    ob_ph = U.get_placeholder_cached(name="state_ph")
+    ac_ph = tf.placeholder(dtype=dtype, shape=[None, env.action_space.n])  # Empirical return
 
     logger.log('----------trpo_mpi----------')
     print('obs_ph shape', ob_ph.shape)
@@ -126,7 +114,7 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
     mean_entropy = tf.reduce_mean(pi.pd.entropy())
     entbonus = entcoeff * mean_entropy
 
-    vf_err = tf.reduce_mean(tf.square(pi.vpred - ret_ph))
+    vf_err = tf.reduce_mean(tf.square(pi.v_predict - ret_ph))
 
     ratio = tf.exp(pi.pd.logp(ac_ph) - old_pi.pd.logp(ac_ph))  # advantage * pnew / pold
     surrgain = tf.reduce_mean(ratio * atarg_ph)
@@ -148,15 +136,16 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
     get_flat = U.GetFlat(var_list)
     set_from_flat = U.SetFromFlat(var_list)
     kl_grads = tf.gradients(dist, var_list)
-    flat_tangent = tf.placeholder(dtype=tf.float64, shape=[None], name="flat_tan")
+    flat_tangent = tf.placeholder(dtype=dtype, shape=[None], name="flat_tan")
     shapes = [var.get_shape().as_list() for var in var_list]
     start = 0
     tangents = []
     for shape in shapes:
         sz = U.intprod(shape)
-        tangents.append(tf.reshape(flat_tangent[start:start+sz], shape))
+        tangents.append(tf.reshape(flat_tangent[start:start + sz], shape))
         start += sz
-    gvp = tf.add_n([tf.reduce_sum(g*tangent) for (g, tangent) in zipsame(kl_grads, tangents)])  # pylint: disable=E1111
+    gvp = tf.add_n(
+        [tf.reduce_sum(g * tangent) for (g, tangent) in zipsame(kl_grads, tangents)])  # pylint: disable=E1111
 
     assign_old_eq_new = U.function([], [],
                                    updates=[tf.assign(old_v, new_v) for old_v, new_v in zipsame(old_pi.get_variables(),
@@ -215,7 +204,7 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
         # ------------------ Update G ------------------
         logger.log("## Optimizing Policy...")
         for _ in range(g_step):
-            logger.log('\n({}/{})'.format(_+1, g_step))
+            logger.log('\n({}/{})'.format(_ + 1, g_step))
             with timed("1. sample data"):
                 seg = seg_gen.__next__()
             add_vtarg_and_adv(seg, gamma, lam)
@@ -242,7 +231,7 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
 
                 assert np.isfinite(step_dir).all()
 
-                shs = 0.5*step_dir.dot(fisher_vector_product(step_dir))
+                shs = 0.5 * step_dir.dot(fisher_vector_product(step_dir))
                 full_step = step_dir / np.sqrt(shs / max_kl)
                 expected_improve = g.dot(full_step)
                 surr_before = loss_before[0]
@@ -253,12 +242,12 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
                     set_from_flat(th_new)
                     mean_losses = surr, kl, *_ = all_mean(np.array(compute_losses(*args)))
                     improve = surr - surr_before
-                    
+
                     logger.log("param_sumsExpected: %.3f Actual: %.3f" % (expected_improve, improve))
                     if not np.isfinite(mean_losses).all():  # loss无限大或小
                         logger.log("param_sumsGot non-finite value of losses -- bad!")
                     elif kl > max_kl * 1.5:
-                        logger.log("param_sumsviolated KL constraint({}/{}).".format(kl, max_kl*1.5))
+                        logger.log("param_sumsviolated KL constraint({}/{}).".format(kl, max_kl * 1.5))
                     elif improve < 0:
                         logger.log("param_sumssurrogate didn't improve.")
                     else:
@@ -268,7 +257,7 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
                 else:
                     logger.log("couldn't compute a good step")
                     set_from_flat(th_before)
-                    
+
                 if n_workers > 1 and iters_so_far % 20 == 0:
                     param_sums = MPI.COMM_WORLD.allgather((th_new.sum(), vf_adam.getflat().sum()))  # list of tuples
                     assert all(np.allclose(ps, param_sums[0]) for ps in param_sums[1:])
@@ -277,7 +266,7 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
 
             with timed("4. value function"):
                 for _ in range(vf_iters):
-                    for (mb_ob, mb_ret) in dataset.iterbatches((ob.reshape([-1, ob.shape[-1]]), seg["tdlamret"]),
+                    for (mb_ob, mb_ret) in dataset.iterbatches((ob, seg["tdlamret"]),
                                                                include_final_partial_batch=False, batch_size=128):
                         if hasattr(pi, "ob_rms"):
                             pi.ob_rms.update(mb_ob)  # update running mean/std for policy
@@ -286,7 +275,7 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
                         vf_adam.update(g, vf_stepsize)
 
         for (name, val) in zip(loss_names, mean_losses):
-            logger.record_tabular('g_'+name, val)
+            logger.record_tabular('g_' + name, val)
         logger.record_tabular("ev_tdlam_before", explained_variance(v_pred_before, tdlamret))
 
         # ------------------ Update D ------------------
@@ -294,25 +283,24 @@ def learn(env, reward_giver, expert_dataset, rank, pi, old_pi, g_step, d_step, e
         logger.log(fmt_row(13, reward_giver.loss_name))
 
         batch_size = timesteps_per_batch // d_step
-        d_losses = []  # list of tuples, each of which gives the loss for a minibatch
-        for ob_batch, ac_batch in dataset.iterbatches((ob, ac),
-                                                      include_final_partial_batch=False,
-                                                      batch_size=batch_size):
-            ob_expert, ac_expert = expert_dataset.get_next_batch(batch_size)
-
+        d_losses = []  # list of tuples, each of which gives the loss for a mini batch
+        for i in range(d_step):
+            ob_expert = expert_dataset.get_next_batch(batch_size)
+            ob_batch = ob[i*batch_size:(i+1)*batch_size]
             # update running mean/std for reward_giver
             if hasattr(reward_giver, "obs_rms"):
                 ob_update = np.concatenate((ob_batch, ob_expert), 0)
+
                 reward_giver.obs_rms.update(ob_update)
 
-            *new_losses, g = reward_giver.compute_grad(ob_batch, ac_batch, ob_expert, ac_expert)
+            *new_losses, g = reward_giver.compute_grad(ob_batch, ob_expert)
             d_adam.update(all_mean(g), d_step_size)
             d_losses.append(new_losses)
         mean_d_loss = np.mean(d_losses, axis=0)
         logger.log(fmt_row(13, mean_d_loss))
 
         for name, val in zip(reward_giver.loss_name, mean_d_loss):
-            logger.record_tabular('d_'+name, val)
+            logger.record_tabular('d_' + name, val)
 
         # ------------------ Record all ------------------
         listoflrpairs = MPI.COMM_WORLD.allgather((seg["ep_rets"], seg["ep_true_rets"]))

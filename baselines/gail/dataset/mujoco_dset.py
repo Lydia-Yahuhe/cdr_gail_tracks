@@ -5,17 +5,17 @@ the values of each item is a list storing the expert trajectory sequentially
 a transition can be: (data['obs'][t], data['acs'][t], data['obs'][t+1]) and get reward data['rews'][t]
 """
 
-from baselines import logger
 import numpy as np
+import cv2
 
 
 class Dset(object):
-    def __init__(self, inputs, labels, randomize):
+    def __init__(self, inputs, randomize):
         self.inputs = inputs
-        self.labels = labels
-        assert len(self.inputs) == len(self.labels)
         self.randomize = randomize
         self.num_pairs = len(inputs)
+        self.pointer = None
+
         self.init_pointer()
 
     def init_pointer(self):
@@ -24,70 +24,70 @@ class Dset(object):
             idx = np.arange(self.num_pairs)
             np.random.shuffle(idx)
             self.inputs = self.inputs[idx, :]
-            self.labels = self.labels[idx, :]
 
     def get_next_batch(self, batch_size):
         # if batch_size is negative -> return all
         if batch_size < 0:
-            return self.inputs, self.labels
+            return self.inputs
 
         if self.pointer + batch_size >= self.num_pairs:
             self.init_pointer()
         end = self.pointer + batch_size
         inputs = self.inputs[self.pointer:end, :]
-        labels = self.labels[self.pointer:end, :]
         self.pointer = end
-        return inputs, labels
+        return inputs
 
 
-class Mujoco_Dset(object):
-    def __init__(self, expert_path, train_fraction=0.7, size=None, randomize=True):
-        logger.log('----------mujoco_dset----------')
+def generate_dataset(videos_path, picture_size, frame_rate=1.0):
+    """Converts videos from specified path to ndarrays of shape [numberOfVideos, -1, width, height, 1]
 
-        trajectory_data = np.load(expert_path)
-        obs = trajectory_data['obs']
-        acs = trajectory_data['acs']
-        print(obs.shape, acs.shape)
+    Args:
+        videos_path: Inside the 'videos/' directory, the name of the subdirectory for videos.
+        frame_rate: The desired frame rate of the dataset.
+        picture_size: Width, height, channel
 
-        # obs, acs: shape (N, L, ) + S where N = # episodes, L = episode length
-        # and S is the environment observation/action space.
-        # Flatten to (N * L, prod(S))
-        if len(obs.shape) > 2:
-            self.obs = np.reshape(obs, [-1, obs.shape[-1]])
-            self.acs = np.reshape(acs, [-1, 1])
+    Returns:
+        The dataset with the new size and framerate, and converted to monochromatic.
+
+    """
+    frames = []
+    video = cv2.VideoCapture(videos_path)
+    while video.isOpened():
+        success, frame = video.read()
+
+        if success:
+            frame = preprocess_image(frame, picture_size)
+            frames.append(frame)
+
+            frame_index = video.get(cv2.CAP_PROP_POS_FRAMES)
+            video_frame_rate = video.get(cv2.CAP_PROP_FPS)
+            video.set(cv2.CAP_PROP_POS_FRAMES, frame_index + video_frame_rate // frame_rate)
+            last_frame_index = video.get(cv2.CAP_PROP_FRAME_COUNT)
+            if frame_index >= last_frame_index:  # Video is over
+                break
         else:
-            self.obs = np.vstack(obs)
-            self.acs = np.vstack(acs)
+            break
 
-        print(self.obs.shape, self.acs.shape)
-        assert len(self.obs) == len(self.acs)
-        if size is None:
-            size = len(self.obs)
-
-        self.randomize = randomize
-        self.dset = Dset(self.obs, self.acs, self.randomize)
-
-        # for behavior cloning
-        train_size = int(size*train_fraction)
-        self.train_set = Dset(self.obs[:train_size, :], self.acs[:train_size, :], self.randomize)
-        self.val_set = Dset(self.obs[train_size:size, :], self.acs[train_size:size, :], self.randomize)
-
-        logger.log("Total obs: {}".format(self.obs.shape))
-        logger.log("Total act: {}".format(self.acs.shape))
-        logger.log("Total transitions: %d/%d, %.2f%%" % (train_size, size, train_size*100.0/size))
-        logger.log('-------------------------------')
-
-    def get_next_batch(self, batch_size, split=None):
-        if split is None:
-            return self.dset.get_next_batch(batch_size)
-        elif split == 'train':
-            return self.train_set.get_next_batch(batch_size)
-        elif split == 'val':
-            return self.val_set.get_next_batch(batch_size)
-        else:
-            raise NotImplementedError
+    frames = np.stack(frames)
+    print(frames.shape)
+    return Dset(frames, randomize=True)
 
 
-# if __name__ == '__main__':
-#     data_set = Mujoco_Dset(".\\deterministic.trpo.Hopper.0.00.npz")
+def preprocess_image(image, size):
+    """ Changes size, makes image monochromatic """
+    width, height, channel = size
+    image = cv2.resize(image, (width, height))
+    if channel == 2:
+        color_style = cv2.COLOR_BGR2GRAY
+    else:
+        color_style = cv2.IMREAD_COLOR
+    image = cv2.cvtColor(image, color_style)
+    image = np.array(image, dtype=np.uint8)
+    # image = np.expand_dims(image, 0)
 
+    # cv2.imshow('figure', image)
+    # cv2.waitKey(0)
+    return image
+
+
+# generate_dataset('E:\\Git_space\\cdr_gail_tracks\\dataset\\output.avi', (1400, 900, 3))

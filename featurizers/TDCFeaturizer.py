@@ -8,7 +8,7 @@ from .residual_block import residual_block
 
 
 class TDCFeaturizer(BaseFeaturizer):
-    """Temporal Distance Classification featurizer
+    """Temporal Distance Classification featurizers
 
     Reference: "Playing hard exploration games by watching YouTube"
     The unsupervised task consists of presenting the network with 2 frames separated by n timesteps,
@@ -25,7 +25,7 @@ class TDCFeaturizer(BaseFeaturizer):
     def __init__(self, initial_width, initial_height, desired_width, desired_height, feature_vector_size=1024,
                  learning_rate=0.0001, experiment_name='default'):
         super().__init__()
-        print("Starting featurizer initialization")
+        print("Starting featurizers initialization")
         self.sess = tf.Session()
         self.graph = self._generate_featurizer(initial_width, initial_height,
                                                desired_width, desired_height,
@@ -41,7 +41,7 @@ class TDCFeaturizer(BaseFeaturizer):
 
     def _generate_featurizer(self, initial_width, initial_height, desired_width, desired_height, feature_vector_size,
                              learning_rate):
-        """Builds the TensorFlow graph for the featurizer
+        """Builds the TensorFlow graph for the featurizers
 
         Args:
             initial_width: The images' width before cropping.

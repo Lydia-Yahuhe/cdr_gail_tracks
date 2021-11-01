@@ -4,10 +4,11 @@ I follow the architecture from the official repository
 """
 import tensorflow as tf
 import numpy as np
-from gym.spaces import Discrete
 
 from baselines.common.mpi_running_mean_std import RunningMeanStd
 from baselines.common import tf_util as U
+
+from .residual_block import residual_block
 
 
 def logsigmoid(a):
@@ -21,29 +22,21 @@ def logit_bernoulli_entropy(logits):
 
 
 class TransitionClassifier(object):
-    def __init__(self, ob_space, ac_space, hidden_size, entcoeff=0.001, scope="adversary"):
+    def __init__(self, hidden_size, picture_size=(900, 1400, 3), entcoeff=0.001, scope="adversary", dtype=tf.float32):
         print('----------adversary_classifier----------')
         self.scope = scope
-        self.observation_shape = tuple(ob_space.shape)
-        self.actions_shape = (1, ) if isinstance(ac_space, Discrete) else tuple(ac_space.shape)
-        print('observation_shape:', self.observation_shape, self.actions_shape)
-        print('actions_shape:', self.actions_shape)
+        self.observation_shape = picture_size
+        print('observation_shape:', self.observation_shape)
 
         # Build placeholder
-        self.generator_obs_ph = tf.placeholder(tf.float64, (None,) + self.observation_shape, name="observations_ph")
-        self.generator_acs_ph = tf.placeholder(tf.float64, (None,) + self.actions_shape, name="actions_ph")
-        self.expert_obs_ph = tf.placeholder(tf.float64, (None,) + self.observation_shape, name="expert_observations_ph")
-        self.expert_acs_ph = tf.placeholder(tf.float64, (None,) + self.actions_shape, name="expert_actions_ph")
+        self.generator_obs_ph = tf.placeholder(dtype, (None,) + self.observation_shape, name="observations_ph")
+        self.expert_obs_ph = tf.placeholder(dtype, (None,) + self.observation_shape, name="expert_observations_ph")
         print('generator_obs_ph:', self.generator_obs_ph.shape)
-        print('generator_acs_ph', self.generator_acs_ph.shape)
         print('expert_obs_ph', self.expert_obs_ph.shape)
-        print('expert_acs_ph', self.expert_acs_ph.shape)
 
         # Build graph
-        generator_logits = self.__build_graph(self.generator_obs_ph, self.generator_acs_ph,
-                                              hidden_size=hidden_size, reuse=False)
-        expert_logits = self.__build_graph(self.expert_obs_ph, self.expert_acs_ph,
-                                           hidden_size=hidden_size, reuse=True)
+        generator_logits = self.__build_graph(self.generator_obs_ph, hidden_size=hidden_size, dtype=dtype)
+        expert_logits = self.__build_graph(self.expert_obs_ph, hidden_size=hidden_size, reuse=True, dtype=dtype)
 
         # Build accuracy
         generator_acc = tf.reduce_mean(tf.to_float(tf.nn.sigmoid(generator_logits) < 0.5))
@@ -72,38 +65,63 @@ class TransitionClassifier(object):
         self.reward_op = -tf.log(1 - tf.nn.sigmoid(generator_logits) + 1e-8)
         var_list = self.get_trainable_variables()
         self.compute_grad = U.function(
-            inputs=[self.generator_obs_ph, self.generator_acs_ph, self.expert_obs_ph, self.expert_acs_ph],
+            inputs=[self.generator_obs_ph, self.expert_obs_ph],
             outputs=self.losses + [U.flatgrad(self.total_loss, var_list)]
         )
         print('----------------------------------------')
 
-    def __build_graph(self, obs_ph, acs_ph, hidden_size, reuse=False):
+    def __build_graph(self, obs_ph, hidden_size, reuse=False, is_training=True, dtype=tf.float32):
         with tf.variable_scope(self.scope):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
 
             with tf.variable_scope("obfilter"):
-                self.obs_rms = RunningMeanStd(shape=self.observation_shape)
+                self.obs_rms = RunningMeanStd(shape=self.observation_shape, dtype=dtype)
 
-            obs = (obs_ph - self.obs_rms.mean) / self.obs_rms.std
-            _input = tf.concat([obs, acs_ph], axis=1)  # concatenate the two input -> form a transition
-            p_h = tf.contrib.layers.fully_connected(_input, hidden_size*8, activation_fn=tf.nn.tanh)
-            p_h = tf.contrib.layers.fully_connected(p_h, hidden_size*4, activation_fn=tf.nn.tanh)
-            p_h = tf.contrib.layers.fully_connected(p_h, hidden_size*2, activation_fn=tf.nn.tanh)
-            p_h = tf.contrib.layers.fully_connected(p_h, hidden_size, activation_fn=tf.nn.tanh)
-            logits = tf.contrib.layers.fully_connected(p_h, 1, activation_fn=tf.identity)
+            inputs = (obs_ph - self.obs_rms.mean) / self.obs_rms.std
+
+            with tf.variable_scope('CNN'):
+                x = inputs
+
+                # 三层卷积
+                for filters, strides in [(32, 2), (64, 1), (64, 1)]:
+                    x = tf.layers.conv2d(
+                        x,
+                        filters=filters,
+                        kernel_size=(3, 3),
+                        strides=strides,
+                        padding='same',
+                        activation=tf.nn.relu,
+                        kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
+                        kernel_regularizer=tf.contrib.layers.l2_regularizer(0.001)
+                    )
+                    x = tf.layers.batch_normalization(x, training=is_training)
+                    x = tf.layers.max_pooling2d(x, 2, 2)
+
+                # 三层ResNeXt
+                for i in range(3):
+                    x = residual_block(x, 64, 64, 1, is_training)
+
+                # flatten层
+                x = tf.layers.flatten(x)
+
+            with tf.variable_scope('FC'):
+                x = tf.contrib.layers.fully_connected(x, hidden_size*8, activation_fn=tf.nn.relu)
+                x = tf.contrib.layers.fully_connected(x, hidden_size*4, activation_fn=tf.nn.relu)
+                x = tf.contrib.layers.fully_connected(x, hidden_size*2, activation_fn=tf.nn.relu)
+                x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.relu)
+                logits = tf.contrib.layers.fully_connected(x, 1, activation_fn=tf.identity)
         return logits
 
     def get_trainable_variables(self):
         return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
 
-    def get_reward(self, obs, acs):
-        if len(obs.shape) == 1:
+    def get_reward(self, obs):
+        if len(obs.shape) == 3:
             obs = np.expand_dims(obs, 0)
-        if len(acs.shape) == 1:
-            acs = np.expand_dims(acs, 0)
 
         sess = tf.get_default_session()
-        reward = sess.run(self.reward_op, feed_dict={self.generator_obs_ph: obs, self.generator_acs_ph: acs})
+        reward = sess.run(self.reward_op, feed_dict={self.generator_obs_ph: obs})
+        print(reward.shape)
         return reward[0][0]
 

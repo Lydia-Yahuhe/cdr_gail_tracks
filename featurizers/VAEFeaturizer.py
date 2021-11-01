@@ -8,13 +8,13 @@ from .BaseFeaturizer import BaseFeaturizer
 
 
 class VAEFeaturizer(BaseFeaturizer):
-    # Variational Auto Encoder featurizer
+    # Variational Auto Encoder featurizers
     def __init__(self, initial_width, initial_height, learning_rate=0.0001):
         super().__init__()
         self.feature_vector_size = 64
         self.hidden_size = 64
 
-        print("Starting featurizer initialization")
+        print("Starting featurizers initialization")
         self.sess = tf.Session()
         self.lr = learning_rate
         self.graph = self._generate_featurizer(initial_width, initial_height)

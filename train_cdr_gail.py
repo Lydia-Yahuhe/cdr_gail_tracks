@@ -2,40 +2,37 @@
 Disclaimer: this code is highly based on trpo_mpi at @openai/baselines and @openai/imitation
 """
 
-import argparse
 import os.path as osp
 import logging
 from mpi4py import MPI
 
+import argparse
 import numpy as np
 import gym
 
 from baselines import bench
 from baselines import logger
 
-from baselines.gail import mlp_policy, trpo_mpi, behavior_clone
-from baselines.gail.dataset.mujoco_dset import Mujoco_Dset
+from baselines.gail import mlp_policy, trpo_mpi
+from baselines.gail.dataset.mujoco_dset import generate_dataset
 from baselines.gail.adversary import TransitionClassifier
 
 from baselines.common import set_global_seeds, tf_util as U
-from baselines.common.misc_util import boolean_flag
+
 from fltenv.env import ConflictEnv
 
 
-def argsparser():
+def args_parser():
     parser = argparse.ArgumentParser("Tensorflow Implementation of GAIL")
     parser.add_argument('--seed', help='RNG seed', type=int, default=4321)
-    parser.add_argument('--expert_path', type=str, default='.\\dataset\\dqn_policy.npz')
+    parser.add_argument('--expert_path', type=str, default='E:\\Git_space\\output.avi')
     parser.add_argument('--checkpoint_dir', help='the directory to save model', default='.\\checkpoint')
     parser.add_argument('--log_dir', help='the directory to save log file', default='.\\log')
     # Task
-    parser.add_argument('--task', type=str, choices=['train', 'evaluate'], default='evaluate')
-    # for evaluation
-    boolean_flag(parser, 'stochastic_policy', default=False, help='use stochastic/deterministic policy to evaluate')
-    boolean_flag(parser, 'save_sample', default=False, help='save the trajectories or not')
+    parser.add_argument('--task', type=str, choices=['train', 'evaluate'], default='train')
     # Optimization Configuration
-    parser.add_argument('--g_step', help='number of steps to train policy in each epoch', type=int, default=10)
-    parser.add_argument('--d_step', help='number of steps to train discriminator in each epoch', type=int, default=5)
+    parser.add_argument('--g_step', help='number of steps to train policy in each epoch', type=int, default=3)
+    parser.add_argument('--d_step', help='number of steps to train discriminator in each epoch', type=int, default=2)
     # Network Configuration (Using MLP Policy)
     parser.add_argument('--policy_hidden_size', type=int, default=128)
     parser.add_argument('--adversary_hidden_size', type=int, default=128)
@@ -47,75 +44,75 @@ def argsparser():
     # Training Configuration
     parser.add_argument('--save_per_iter', help='save model every xx iterations', type=int, default=100)
     parser.add_argument('--iterations', help='number of timesteps per episode', type=int, default=10000)
-    # Behavior Cloning
-    boolean_flag(parser, 'pretrained', default=True, help='Use BC to pretrain')
-    parser.add_argument('--BC_iters', help='Max iteration for training BC', type=int, default=1e3)
     return parser.parse_args()
 
 
 def main():
-    args = argsparser()
+    # 超参数
+    args = args_parser()
 
     U.make_session(num_cpu=1).__enter__()
     set_global_seeds(args.seed)
 
+    # 环境
     env = ConflictEnv()
     env = bench.Monitor(env, logger.get_dir() and osp.join(logger.get_dir(), "monitor.json"))
     env.seed(args.seed)
     gym.logger.setLevel(logging.WARN)
 
-    ob_space = env.observation_space
-    ac_space = env.action_space
-
     def policy_fn(name, reuse=False):
-        return mlp_policy.MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                                    reuse=reuse, hid_size=args.policy_hidden_size, num_hid_layers=4)
-
+        return mlp_policy.MlpPolicy(name=name,
+                                    ob_space=env.observation_space, ac_space=env.action_space,
+                                    reuse=reuse,
+                                    hid_size=args.policy_hidden_size, num_hid_layers=4)
+    # 策略网络（生成对抗网络的Generator）
     pi = policy_fn("pi")  # Construct network for new policy
+
+    # 网络参数初始化
     U.initialize()
 
+    # 参数保存路径
     checkpoint_dir = osp.abspath(args.checkpoint_dir)
-    task_name = args.algo + "_gail.seed_{}.BC_{}.iters_{}".format(args.seed, args.BC_iters, args.iterations)
+    task_name = args.algo + "_gail.seed_{}.iters_{}".format(args.seed, args.iterations)
     save_dir_pi = osp.join(checkpoint_dir, task_name)
     print(save_dir_pi)
 
-    if args.task == 'train':
-        # expert demonstrations
-        dataset = Mujoco_Dset(expert_path=args.expert_path)
+    if args.task == 'train':  # 训练
+        (width, height, channel) = env.picture_size
 
-        # pretrain by Behavior Clone
-        if args.pretrained:
-            behavior_clone.learn(pi, dataset, batch_size=16, max_iters=args.BC_iters, verbose=True)
+        # 真实轨迹形成的图片
+        dataset = generate_dataset(args.expert_path, env.picture_size)
 
-        # GAN
-        reward_giver = TransitionClassifier(ob_space, ac_space, args.adversary_hidden_size,
+        # GAN网络
+        reward_giver = TransitionClassifier(args.adversary_hidden_size,
+                                            picture_size=(height, width, channel),
                                             entcoeff=args.adversary_entcoeff)
 
         # Set up for MPI seed
         rank = MPI.COMM_WORLD.Get_rank()
         if rank != 0:
             logger.set_level(logger.DISABLED)
-        workerseed = args.seed + 10000 * MPI.COMM_WORLD.Get_rank()
-        set_global_seeds(workerseed)
-        env.seed(workerseed)
+        worker_seed = args.seed + 10000 * MPI.COMM_WORLD.Get_rank()
+        set_global_seeds(worker_seed)
+        env.seed(worker_seed)
 
         # Pi and old pi
         old_pi = policy_fn("old_pi")
+
         trpo_mpi.learn(env, reward_giver, dataset, rank, pi, old_pi,
                        g_step=args.g_step, d_step=args.d_step, max_iters=args.iterations,
                        entcoeff=args.policy_entcoeff, save_dir=save_dir_pi, save_per_iter=args.save_per_iter,
                        timesteps_per_batch=32, max_kl=0.01, cg_iters=10, cg_damping=0.1, gamma=0.995,
                        lam=0.97, vf_iters=5, vf_stepsize=1e-3)
-    elif args.task == 'evaluate':
+    elif args.task == 'evaluate':  # 测试
         U.load_variables(save_dir_pi)
         output_gail_policy(env,
                            pi,
-                           stochastic_policy=args.stochastic_policy,
                            save_path='gail_policy')
     env.close()
 
 
-def output_gail_policy(env, pi, stochastic_policy=False, save_path='policy'):
+def output_gail_policy(env, pi, save_path='policy'):
     obs_array = []
     act_array = []
     rew_array = []
@@ -131,7 +128,7 @@ def output_gail_policy(env, pi, stochastic_policy=False, save_path='policy'):
         obs, done = env.reset(test=True), False
         result = {'result': True}
         while not done:
-            action, vpred = pi.act(stochastic_policy, obs)
+            action, vpred = pi.act(obs)
             action = action[0][0]
             next_obs, rew, done, result = env.step(action)
 

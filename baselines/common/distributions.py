@@ -219,7 +219,6 @@ class CategoricalPd(Pd):
             x = tf.one_hot(x, self.logits.get_shape().as_list()[-1])
         else:
             # already encoded
-            print(x.dtype)
             assert x.shape.as_list() == self.logits.shape.as_list()
 
         return tf.nn.softmax_cross_entropy_with_logits_v2(

@@ -40,17 +40,7 @@ def load_atsRoute():
     return ret
 
 
-def load_historical_tracks():
-    ret = {}
-    cursor = db['historicalTracks'].find()
-    for e in cursor:
-        del e['_id']
-        ret[e['id']] = dict(**e)
-    return ret
-
-
 db = pymongo.MongoClient('localhost')['admin']
 wpt_dict = load_waypoint()
 atsRoute = load_atsRoute()
-historical_tracks = load_historical_tracks()
 

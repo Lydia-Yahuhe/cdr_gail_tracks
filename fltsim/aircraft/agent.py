@@ -37,6 +37,9 @@ class AircraftAgent:
         tmp += [0.0 for _ in range(delta*2)]
         return tmp[:delta*2]
 
+    def get_x_data(self):
+        return self.status.x_data()
+
     @property
     def position(self):
         loc = self.status.location

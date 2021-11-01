@@ -4,11 +4,12 @@ import numpy as np
 import cv2
 
 from fltsim.load import routings
-from fltsim.utils import pnpoly, convert_coord_to_pixel, distance
+from fltsim.utils import pnpoly, convert_coord_to_pixel, destination, NM2M
 
 alt_mode = simplekml.AltitudeMode.absolute
 
 
+# 随机透明度的随机颜色
 def make_random_color():
     r = random.randint(0, 255)
     g = random.randint(0, 255)
@@ -17,9 +18,8 @@ def make_random_color():
     return c
 
 
-def tuple2kml(kml, name, tracks, color=simplekml.Color.chocolate):
-    ls = kml.newlinestring(name=name)
-    ls.coords = [(wpt[0], wpt[1], wpt[2]) for wpt in tracks]
+def tuple2kml(kml, name, tracks, color=simplekml.Color.chocolate, description=None):
+    ls = kml.newlinestring(name=name, description=description, coords=tracks)
     ls.extrude = 1
     ls.altitudemode = alt_mode
     ls.style.linestyle.width = 1
@@ -27,13 +27,11 @@ def tuple2kml(kml, name, tracks, color=simplekml.Color.chocolate):
     ls.style.linestyle.color = color
 
 
-def place_mark(point, kml, name='test', hdg=None, description=None):
-    pnt = kml.newpoint(name=name, coords=[point],
-                       altitudemode=alt_mode, description=description)
-
+def place_mark(point, kml, name='point', hdg=None, description=None):
+    pnt = kml.newpoint(name=name, coords=[point], description=description, altitudemode=alt_mode)
     pnt.style.labelstyle.scale = 0.25
     pnt.style.iconstyle.icon.href = '.\\placemark.png'
-    # pnt.style.iconstyle.icon.href = '.\\plane.png'
+    pnt.style.iconstyle.icon.href = '.\\plane.png'
     if hdg is not None:
         pnt.style.iconstyle.heading = (hdg + 270) % 360
 
@@ -90,7 +88,7 @@ def search_routing_in_a_area(vertices):
     return segments
 
 
-def generate_wuhan_base_map(size=(700, 1000, 3), save=None, show=False, **kwargs):
+def generate_wuhan_base_map(size=(900, 1400, 3), save=None, show=False, **kwargs):
     # 武汉空域
     vertices = [(109.51666666666667, 31.9), (110.86666666666666, 33.53333333333333),
                 (114.07, 32.125), (115.81333333333333, 32.90833333333333),
@@ -102,42 +100,36 @@ def generate_wuhan_base_map(size=(700, 1000, 3), save=None, show=False, **kwargs
     image = np.zeros(size, np.uint8)
 
     points = convert_coord_to_pixel(vertices, **kwargs)
-
     segments = search_routing_in_a_area(vertices)
     for name, coord in segments.items():
         coord_idx = convert_coord_to_pixel(coord, **kwargs)
-        cv2.line(image, coord_idx[0], coord_idx[1], (128, 0, 128), 1)
+        cv2.line(image, coord_idx[0], coord_idx[1], (240, 32, 160), 1)
     pts = np.array(points, np.int32).reshape((-1, 1, 2,))
-    cv2.polylines(image, [pts], True, (255, 255, 0), 1)
+    cv2.polylines(image, [pts], True, (255, 191, 0), 2)
 
     if save is not None:
         cv2.imwrite(save, image)
 
     if show:
         cv2.imshow("wuhan", image)
-        cv2.waitKey(1000)
+        cv2.waitKey(0)
         cv2.destroyAllWindows()
 
     return image
 
 
-def add_point_on_base_map(points, image, save=False, speed=1, font_scale=0.4, font=cv2.FONT_HERSHEY_SIMPLEX, **kwargs):
-    color = (255, 255, 255)
-    now, ac_en = points[0][1], len(points)
-    info = 'Time: {}, ac_en: {}, speed: x{}'.format(now, ac_en, speed)
-    cv2.putText(image, info, (700, 50), font, font_scale, color, 1)
+# 点的颜色为
+def add_points_on_base_map(points, image, save=False, **kwargs):
+    radius = 20
+    for [lng, lat, alt, *point] in points:
+        coord = [lng, lat]
+        coord_idx = convert_coord_to_pixel([coord], **kwargs)[0]
 
-    for [name, _, lng, lat, *point] in points:
-        [x, y] = convert_coord_to_pixel([[lng, lat]], **kwargs)[0]
-        cv2.circle(image, [x, y], 2, (0, 255, 0), -1)
+        blue = min(255, max((alt-6000) / 6000 * 255, 0))
+        cv2.circle(image, coord_idx, radius, (0, 255-blue, 255), -1)
 
-        cv2.putText(image, name, (x, y+10), font, font_scale, color, 1)
-        state = 'Altitude: {}'.format(point[0])
-        cv2.putText(image, state, (x, y+30), font, font_scale, color, 1)
-        state = '   Speed: {}'.format(point[1])
-        cv2.putText(image, state, (x, y+50), font, font_scale, color, 1)
-        state = ' Heading: {}'.format(point[2])
-        cv2.putText(image, state, (x, y+70), font, font_scale, color, 1)
+        heading_spd_point = destination(coord, point[-1], 180/3600*point[0]*NM2M)
+        add_lines_on_base_map([[coord, heading_spd_point, False]], image, **kwargs)
 
     if save:
         cv2.imwrite("script/wuhan.jpg", image)
@@ -147,18 +139,24 @@ def add_point_on_base_map(points, image, save=False, speed=1, font_scale=0.4, fo
     return image
 
 
-def add_line_on_base_map(lines, image, save=False, font_scale=0.4, font=cv2.FONT_HERSHEY_SIMPLEX, **kwargs):
+def add_lines_on_base_map(lines, image, save=False, color=(154, 250, 0), display=False, font_scale=0.4,
+                          font=cv2.FONT_HERSHEY_SIMPLEX, **kwargs):
     if len(lines) <= 0:
         return image
 
-    color = (255, 0, 0)
-    for [pos0, pos1, h_dist, v_dist] in lines:
+    decimal = 1
+    for [pos0, pos1, *other] in lines:
+        if other[-1]:
+            color = (255, 130, 171)
+
         [start, end] = convert_coord_to_pixel([pos0, pos1], **kwargs)
         cv2.line(image, start, end, color, 1)
 
-        mid_idx = (int((start[0]+end[0])/2)+10, int((start[1]+end[1])/2)+10)
-        state = ' H_dist: {}, V_dist'.format(h_dist, v_dist)
-        cv2.putText(image, state, mid_idx, font, font_scale, color, 1)
+        if display:
+            [h_dist, v_dist] = other[:2]
+            mid_idx = (int((start[0]+end[0])/2)+10, int((start[1]+end[1])/2)+10)
+            state = ' H_dist: {}, V_dist: {}'.format(round(h_dist, decimal), round(v_dist, decimal))
+            cv2.putText(image, state, mid_idx, font, font_scale, color, 1)
 
     if save:
         cv2.imwrite("script/wuhan.jpg", image)
@@ -166,3 +164,7 @@ def add_line_on_base_map(lines, image, save=False, font_scale=0.4, font=cv2.FONT
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     return image
+
+
+# kwargs = dict(border=[109, 116, 27, 33.5], scale=200)
+# generate_wuhan_base_map(save='wuhan_base.jpg', show=True, **kwargs)

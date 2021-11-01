@@ -174,3 +174,6 @@ class FlightStatus:
         # pylint: disable=no-member
         self.performance.copy(other.performance)
         self.phase = other.phase
+
+    def x_data(self):
+        return self.location.toArray()+[self.alt, self.hSpd, self.vSpd, self.heading]

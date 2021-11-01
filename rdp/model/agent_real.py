@@ -1,4 +1,4 @@
-from classes import State, SPD, ALT, HDG
+from .classes import State, SPD, ALT, HDG
 
 
 class Single:

@@ -11,7 +11,7 @@ class BaseFeaturizer(metaclass=ABCMeta):
     have similar embeddings.)
 
     The mapping between images and embeddings is learned by training with an unsupervised task.
-    Each featurizer type uses a different unsupervised task.
+    Each featurizers type uses a different unsupervised task.
 
     """
 
@@ -21,7 +21,7 @@ class BaseFeaturizer(metaclass=ABCMeta):
 
     @abstractmethod
     def train(self, dataset, epochs, batch_size):
-        """Trains the featurizer.
+        """Trains the featurizers.
         Dataset is a list of ndarrays; overall shape = (videos, frames, width, height, 1)
         """
         raise NotImplementedError

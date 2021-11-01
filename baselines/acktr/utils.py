@@ -1,12 +1,12 @@
 import tensorflow as tf
 
 
-def dense(x, size, name, weight_init=None, bias_init=0, weight_loss_dict=None, reuse=None):
+def dense(x, size, name, weight_init=None, bias_init=0, weight_loss_dict=None, reuse=None, dtype=tf.float32):
     with tf.variable_scope(name, reuse=reuse):
         assert (len(tf.get_variable_scope().name.split('/')) == 2)
 
-        w = tf.get_variable("w", [x.get_shape()[-1], size], dtype=tf.float64, initializer=weight_init)
-        b = tf.get_variable("b", [size], dtype=tf.float64, initializer=tf.constant_initializer(bias_init))
+        w = tf.get_variable("w", [x.get_shape()[-1], size], dtype=dtype, initializer=weight_init)
+        b = tf.get_variable("b", [size], dtype=dtype, initializer=tf.constant_initializer(bias_init))
         weight_decay_fc = 3e-4
 
         if weight_loss_dict is not None:

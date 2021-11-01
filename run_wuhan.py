@@ -1,25 +1,20 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from agent_set import AgentSetReal
-from file_processor import get_fpl_list
+from rdp.file_processor import get_fpl_list
+from rdp.model import AgentSetReal
 
-from fltsim.visual import cv2, generate_wuhan_base_map, add_point_on_base_map, add_line_on_base_map
+from fltsim.visual import cv2, add_points_on_base_map, add_lines_on_base_map
 
 
-def main():
+def main(picture_size=(1400, 900), wait_time=1):
     # 从excel中提取轨迹和航班信息
-    fpl_list, starts = get_fpl_list(number=1000)
+    fpl_list, starts = get_fpl_list(number=200)
 
     # 构建agent set类
     agent_set = AgentSetReal(fpl_list, starts)
 
-    picture_size = (1000, 700)
-    kwargs = dict(border=[108, 118, 28, 35], scale=100)
-    save_path = 'wuhan.jpg'
-    wait_time = 1
-    play_speed = int(8000 / wait_time)
-    base_img = generate_wuhan_base_map(save=save_path, **kwargs)
+    kwargs = dict(border=[109, 116, 27, 33.5], scale=200)
 
     # 定义编解码器并创建VideoWriter对象
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
@@ -27,19 +22,22 @@ def main():
 
     # agentSet运行
     while not agent_set.all_done:
-        base_img = cv2.imread(save_path, cv2.IMREAD_COLOR)
+        base_img = cv2.imread('.\\dataset\\wuhan_base.jpg', cv2.IMREAD_COLOR)
 
         states = agent_set.do_step()
         line_two = agent_set.detection_conflicts()
 
-        if len(states) > 20:
-            base_img = add_line_on_base_map(line_two, base_img, **kwargs)
+        if len(states) > 0:
+            # base_img = add_lines_on_base_map(line_two, base_img, **kwargs)
             locations = [[key] + state for key, state in states.items()]
-            frame = add_point_on_base_map(locations, base_img, speed=play_speed, **kwargs)
-            frame = cv2.resize(frame, picture_size)
-            cv2.imshow('video', frame)
-            cv2.waitKey(wait_time)
-            out.write(frame)
+            frame, _ = add_points_on_base_map(locations, base_img, **kwargs)
+        else:
+            frame = base_img
+
+        frame = cv2.resize(frame, picture_size)
+        cv2.imshow('video', frame)
+        cv2.waitKey(wait_time)
+        out.write(frame)
 
     out.release()
     cv2.waitKey(1) & 0xFF
@@ -47,7 +45,7 @@ def main():
     print('\n>>> The process of running agent set is finished!')
 
     # 可视化历史轨迹和计划轨迹
-    agent_set.visual(name='AgentSet')
+    agent_set.visual(save_path='AgentSet')
     # 可视化流量
     agent_set.flow_visual()
     print('\n>>> Agent set is visualized!')
@@ -87,8 +85,8 @@ def main():
 
             fig.legend(loc=1, bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxes)
 
-            plt.savefig('.\\pictures\\' + a0_id + '-' + a1_id)
-            plt.show()
+            plt.savefig('dataset/pictures/' + a0_id + '-' + a1_id)
+            # plt.show()
 
 
 if __name__ == '__main__':

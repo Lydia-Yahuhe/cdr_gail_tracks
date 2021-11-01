@@ -10,30 +10,35 @@ import tensorflow as tf
 
 class RunningMeanStd(object):
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-2, shape=()):
+    def __init__(self, epsilon=1e-2, shape=(), dtype=tf.float64):
         self._sum = tf.get_variable(
-            dtype=tf.float64,
+            dtype=dtype,
             shape=shape,
             initializer=tf.constant_initializer(0.0),
             name="runningsum", trainable=False)
         self._sumsq = tf.get_variable(
-            dtype=tf.float64,
+            dtype=dtype,
             shape=shape,
             initializer=tf.constant_initializer(epsilon),
             name="runningsumsq", trainable=False)
         self._count = tf.get_variable(
-            dtype=tf.float64,
+            dtype=dtype,
             shape=(),
             initializer=tf.constant_initializer(epsilon),
             name="count", trainable=False)
         self.shape = shape
 
-        self.mean = tf.to_double(self._sum / self._count)
-        self.std = tf.sqrt(tf.maximum(tf.to_double(self._sumsq / self._count) - tf.square(self.mean), 1e-2))
+        if dtype == tf.float64:
+            func = tf.to_double
+        else:
+            func = tf.to_float
 
-        newsum = tf.placeholder(shape=self.shape, dtype=tf.float64, name='sum')
-        newsumsq = tf.placeholder(shape=self.shape, dtype=tf.float64, name='var')
-        newcount = tf.placeholder(shape=[], dtype=tf.float64, name='count')
+        self.mean = func(self._sum / self._count)
+        self.std = tf.sqrt(tf.maximum(func(self._sumsq / self._count) - tf.square(self.mean), 1e-2))
+
+        newsum = tf.placeholder(shape=self.shape, dtype=dtype, name='sum')
+        newsumsq = tf.placeholder(shape=self.shape, dtype=dtype, name='var')
+        newcount = tf.placeholder(shape=[], dtype=dtype, name='count')
         self.incfiltparams = U.function([newsum, newsumsq, newcount], [],
                                         updates=[tf.assign_add(self._sum, newsum),
                                                  tf.assign_add(self._sumsq, newsumsq),

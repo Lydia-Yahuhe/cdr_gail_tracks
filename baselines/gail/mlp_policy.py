@@ -12,6 +12,8 @@ from baselines.common.distributions import make_pdtype
 
 from baselines.acktr.utils import dense
 
+from .residual_block import residual_block
+
 
 class MlpPolicy(object):
     recurrent = False
@@ -20,54 +22,89 @@ class MlpPolicy(object):
         with tf.variable_scope(name):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
-            self._init(name, *args, **kwargs)
+                
+            self._init(*args, **kwargs)
             self.scope = tf.get_variable_scope().name
 
-    def _init(self, scope, ob_space, ac_space, hid_size, num_hid_layers, gaussian_fixed_var=True):
+    def _init(self, ob_space, ac_space, hid_size, num_hid_layers, gaussian_fixed_var=True,
+              is_training=True, dtype=tf.float32):
         assert isinstance(ob_space, gym.spaces.Box)
 
         # placeholder
-        self.pdtype = make_pdtype(ac_space)
-        stochastic_ph = tf.placeholder(dtype=tf.bool, shape=(), name="stochastic_ph")
-        obs_ph = U.get_placeholder(dtype=tf.float64, shape=[None] + list(ob_space.shape), name="obs_ph")
+        self.pd_type = make_pdtype(ac_space)
+        is_stochastic = tf.placeholder(dtype=tf.bool, shape=(), name="is_stochastic")
+        state_ph = U.get_placeholder(dtype=dtype, shape=[None] + list(ob_space.shape), name="state_ph")
 
         with tf.variable_scope("ob_filter"):
-            self.ob_rms = RunningMeanStd(shape=ob_space.shape)
+            self.ob_rms = RunningMeanStd(shape=ob_space.shape, dtype=dtype)
 
-        obz = tf.clip_by_value((obs_ph - self.ob_rms.mean) / self.ob_rms.std, -5.0, 5.0)
+        state = tf.clip_by_value((state_ph - self.ob_rms.mean) / self.ob_rms.std, -5.0, 5.0) 
+        
+        with tf.variable_scope('CNN'):
+            x = state
+            
+            # 三层卷积
+            for filters, strides in [(32, 2), (64, 1), (64, 1)]:
+                x = tf.layers.conv2d(
+                    x,
+                    filters=filters,
+                    kernel_size=(3, 3),
+                    strides=strides,
+                    padding='same',
+                    activation=tf.nn.relu,
+                    kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
+                    kernel_regularizer=tf.contrib.layers.l2_regularizer(0.001)
+                )
+                x = tf.layers.batch_normalization(x, training=is_training)
+                x = tf.layers.max_pooling2d(x, 2, 2)
 
-        last_out = obz
+            # 三层ResNeXt
+            for i in range(3):
+                x = residual_block(x, 64, 64, 1, is_training)
+                
+            # flatten层
+            x = tf.layers.flatten(x)
+
+        # 全连接层
+        last_out = x
         for i in range(num_hid_layers):
-            last_out = tf.nn.tanh(dense(last_out, hid_size, "vffc%i" % (i+1), weight_init=U.normc_initializer(1.0)))
-        self.vpred = dense(last_out, 1, "vffinal", weight_init=U.normc_initializer(1.0))[:, 0]
-
-        last_out = obz
+            last_out = tf.layers.dense(
+                last_out,
+                hid_size,
+                tf.nn.relu,
+                kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
+                kernel_regularizer=tf.contrib.layers.l2_regularizer(0.001),
+                name="vffc%i" % (i + 1)
+            )
+        self.v_predict = dense(last_out, 1, "vffinal", weight_init=U.normc_initializer(1.0), dtype=dtype)[:, 0]
+            
+        last_out = x
         for i in range(num_hid_layers):
-            last_out = tf.nn.tanh(dense(last_out, hid_size, "polfc%i" % (i+1), weight_init=U.normc_initializer(1.0)))
+            last_out = tf.layers.dense(
+                last_out,
+                hid_size,
+                tf.nn.relu,
+                kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
+                kernel_regularizer=tf.contrib.layers.l2_regularizer(0.001),
+                name="polfc%i" % (i + 1)
+            )
 
         if gaussian_fixed_var and isinstance(ac_space, gym.spaces.Box):
-            mean = dense(last_out, self.pdtype.param_shape()[0]//2, "polfinal", U.normc_initializer(0.01))
-            logstd = tf.get_variable(name="logstd", shape=[1, self.pdtype.param_shape()[0]//2], initializer=tf.zeros_initializer())
+            mean = dense(last_out, self.pd_type.param_shape()[0]//2, "polfinal", U.normc_initializer(0.01), dtype=dtype)
+            logstd = tf.get_variable(name="logstd",
+                                     shape=[1, self.pd_type.param_shape()[0]//2],
+                                     initializer=tf.zeros_initializer())
             pdparam = tf.concat([mean, mean * 0.0 + logstd], axis=1)
         else:
-            pdparam = dense(last_out, self.pdtype.param_shape()[0], "polfinal", U.normc_initializer(0.01))
+            pdparam = dense(last_out, self.pd_type.param_shape()[0], "polfinal", U.normc_initializer(0.01), dtype=dtype)
 
-        self.pd = self.pdtype.pdfromflat(pdparam)
+        self.pd = self.pd_type.pdfromflat(pdparam)
+        ac = U.switch(is_stochastic, self.pd.sample(), self.pd.mode())
+        self._act = U.function([is_stochastic, state_ph], [ac, self.v_predict])
 
-        ac = U.switch(stochastic_ph, self.pd.sample(), self.pd.mode())
-        ac = tf.expand_dims(tf.argmax(ac, axis=-1), -1)
-        self._act = U.function([stochastic_ph, obs_ph], [ac, self.vpred])
-
-        # change for BC
-        expert_ac_ph = tf.placeholder(dtype=tf.int64, shape=[None, 1], name='expert_ac_ph')
-        loss = tf.reduce_mean(tf.square(expert_ac_ph - ac))
-        var_list = self.get_trainable_variables(scope=scope)
-        self.lossandgrad = U.function(inputs=[obs_ph, expert_ac_ph, stochastic_ph],
-                                      outputs=[loss] + [U.flatgrad(loss, var_list)])
-
-    def act(self, stochastic, ob):
-        ac1, vpred1 = self._act(stochastic, ob[None])
-        return ac1, vpred1
+    def act(self, ob, stochastic=False):
+        ac, v_predict = self._act(stochastic, ob[None])
+        return ac, v_predict
 
     def get_variables(self, scope=None):
         if scope is None:

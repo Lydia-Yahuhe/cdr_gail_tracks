@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xlrd
 
-from classes import FlightPlan
-from rdp.utils.computation import clock2time
+from .model import FlightPlan
+from .utils.computation import clock2time
 
 
 def visual_flight_vertical(points, fpl_id):
@@ -28,8 +28,8 @@ def visual_flight_vertical(points, fpl_id):
     plt.show()
 
 
-def get_fpl_list(alt_limit=4200, v_visual=False, number=-1):
-    data_path = os.path.abspath(".\\0501-0510.xlsx")
+def get_fpl_list(alt_limit=0, v_visual=False, number=-1):
+    data_path = os.path.abspath(".\\rdp\\0501-0510.xlsx")
     sheet = xlrd.open_workbook(data_path).sheets()[0]
 
     fpl_list, starts = [], []
@@ -45,6 +45,7 @@ def get_fpl_list(alt_limit=4200, v_visual=False, number=-1):
             lat, lng, alt = float(position[:9]), float(position[11:21]), float(position[22:]) * 10
             spd, hdg, timestamp = float(state[:4]), float(state[5:8]), state[10:]
             clock = clock2time(timestamp, day=True)
+            # print(lat, lng, alt, spd, hdg, timestamp)
             if date is None:
                 date = timestamp[:8]
 

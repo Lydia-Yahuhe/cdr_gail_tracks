@@ -1,5 +1,7 @@
 import numpy as np
 import time
+import cv2
+
 from contextlib import contextmanager
 
 from baselines.common import colorize
@@ -7,7 +9,7 @@ from baselines.common import colorize
 from fltenv.agent_Set import AircraftAgentSet
 from fltenv.cmd import CmdCount, int_2_atc_cmd, check_cmd
 
-from fltsim.utils import make_bbox, mid_position, build_rt_index
+from fltsim.visual import add_points_on_base_map
 
 
 @contextmanager
@@ -37,53 +39,27 @@ class ConflictScene:
     def now(self):
         return self.agentSet.time
 
-    # def get_states(self):
-    #     state = [[0.0 for _ in range(7)] for _ in range(30)]
-    #
-    #     agents = self.agentSet.agents
-    #     [a0, a1] = self.conflict_ac
-    #     mid_pos = mid_position(agents[a0].position, agents[a1].position)
-    #     bbox = make_bbox(mid_pos, ext=(1.0, 1.0, 900))
-    #
-    #     ac_en = self.agentSet.agent_en
-    #     idx = build_rt_index(ac_en)
-    #
-    #     j = 0
-    #     for i in idx.intersection(bbox):
-    #         agent = ac_en[i]
-    #         pos = agent.position
-    #         ele = [int(agent.id in self.conflict_ac),
-    #                pos[0] - self.conflict_pos[0],
-    #                pos[1] - self.conflict_pos[1],
-    #                (pos[2] - self.conflict_pos[2]) / 3000,
-    #                (agent.status.hSpd - 150) / 100,
-    #                agent.status.vSpd / 20,
-    #                agent.status.heading / 180]
-    #         j = min(30-1, j)
-    #         state[j] = ele
-    #         j += 1
-    #     return np.concatenate(state)
+    def get_states(self, width, height, channel):
+        kwargs = dict(border=[108, 118, 28, 35], scale=200)
 
-    def get_states(self):
-        state = [[0.0 for _ in range(7)] for _ in range(50)]
+        # 轨迹点
+        points = []
+        for key, agent in self.agentSet.agents.items():
+            points.append(agent.get_x_data())
 
-        j = 0
-        for agent in self.agentSet.agent_en:
-            pos = agent.position
-            ele = [int(agent.id in self.conflict_ac),
-                   pos[0] - self.conflict_pos[0],
-                   pos[1] - self.conflict_pos[1],
-                   (pos[2] - self.conflict_pos[2]) / 3000,
-                   (agent.status.hSpd - 150) / 100,
-                   agent.status.vSpd / 20,
-                   agent.status.heading / 180]
-            j = min(30-1, j)
-            state[j] = ele
-            j += 1
+        # 武汉扇区的底图（有航路）
+        base_img = cv2.imread('dataset/wuhan_base.jpg', cv2.IMREAD_COLOR)
 
-        return np.concatenate(state)
+        # 将当前时刻所有航空器的位置和状态放在图上
+        frame = add_points_on_base_map(points, base_img, **kwargs)
+        frame = cv2.resize(frame, (width, height))
+        # print(frame.shape)
+        # cv2.imshow('image', frame)
+        # cv2.waitKey(0)
+        return frame
 
     def assign_cmd_idx(self, action):
+        action = np.argmax(action)
         agent, idx = self.conflict_ac[action // CmdCount], action % CmdCount
         check = self.cmd_list[agent]
 

@@ -1,15 +1,14 @@
 import time
 
-import simplekml
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 
-from agent import Single
+from .agent_real import Single
 
-from rdp.utils.functions import build_rt_index
-from rdp.utils.computation import make_bbox, distance
-from rdp.utils.visual import make_random_color, linestring
+from ..utils.functions import build_rt_index
+from ..utils.computation import make_bbox, distance
+
+from fltsim.visual import save_to_kml
 
 
 KM2M = 1000.0
@@ -86,24 +85,16 @@ class AgentSetReal:
         return link_two
 
     # 画图的时候加了placemark
-    def visual(self, name='AgentSet', r_c=False):
-        kml = simplekml.Kml()
+    def visual(self, save_path='AgentSet', limit=None):
+        tracks_real = {}
+        tracks_plan = {}
+        for a_id, agent in self.agents.items():
+            if limit is not None and a_id not in limit:
+                continue
 
-        # 计划轨迹用chocolate，真实轨迹用corn flower blue
-        color_r = simplekml.Color.cornflowerblue if not r_c else make_random_color()
-        color_p = simplekml.Color.chocolate if not r_c else make_random_color()
-
-        folder_r = kml.newfolder(name='real_tracks')
-        folder_p = kml.newfolder(name='plan_tracks')
-        for key, a in self.agents.items():
-            # 飞行计划路径可视化
-            tracks_r = [(point[1], point[2], point[3]) for point in a.points]
-            linestring(folder_r, tracks_r, color_r, name=key)
-
-            # 飞行真实路径可视化
-            tracks_p = [(t[0], t[1], t[2]) for t in a.plan.values()]
-            linestring(folder_p, tracks_p, color_p, name=key)
-        kml.save(name + '.kml')
+            tracks_real[a_id] = [(point[1], point[2], point[3]) for point in agent.points]
+            tracks_plan[a_id] = [(t[0], t[1], t[2]) for t in agent.plan.values()]
+        save_to_kml(tracks_real, tracks_plan, save_path=save_path)
 
     def flow_visual(self, show=True):
         # 可视化流量
@@ -113,6 +104,5 @@ class AgentSetReal:
 
         if show:
             print('flow visual:')
+            plt.savefig('flow.png')
             plt.show()
-        plt.savefig('flow.png')
-

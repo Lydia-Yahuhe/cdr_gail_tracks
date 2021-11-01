@@ -18,7 +18,7 @@ class ForwardModelFeaturizer(BaseFeaturizer):
     def __init__(self, initial_width, initial_height, desired_width, desired_height, feature_vector_size=16,
                  learning_rate=0.0001, is_variational=False, experiment_name='default'):
         super().__init__()
-        print("Starting featurizer initialization")
+        print("Starting featurizers initialization")
         self.sess = tf.Session()
         self.model = Model(initial_width, initial_height, desired_width, desired_height, feature_vector_size, learning_rate)
         self.saver = tf.train.Saver()

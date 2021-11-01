@@ -265,9 +265,9 @@ class SetFromFlat(object):
         assigns = []
         for (shape, v) in zip(shapes, var_list):
             size = intprod(shape)
-            v_ = tf.cast(tf.reshape(theta[start:start + size], shape), tf.float64)
-            assigns.append(tf.assign(v, v_))
-            # assigns.append(tf.assign(v, tf.reshape(theta[start:start + size], shape)))
+            # v_ = tf.cast(tf.reshape(theta[start:start + size], shape), tf.float64)
+            # assigns.append(tf.assign(v, v_))
+            assigns.append(tf.assign(v, tf.reshape(theta[start:start + size], shape)))
             start += size
         self.op = tf.group(*assigns)
 

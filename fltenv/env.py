@@ -28,8 +28,9 @@ class ConflictEnv(gym.Env, ABC):
         self.train, self.test = load_and_split_data('scenarios_gail_final', size=6000, split_ratio=0.8)
         # self.test = self.train[:]
 
+        self.picture_size = (140, 90, 3)
         self.action_space = spaces.Discrete(CmdCount*2)
-        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(350, ), dtype=np.float64)
+        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=self.picture_size, dtype=np.float32)
 
         print('----------env----------')
         print('    train size: {:>6}'.format(len(self.train)))
@@ -53,7 +54,7 @@ class ConflictEnv(gym.Env, ABC):
         else:
             info = self.test.pop(0)
             self.scene = ConflictScene(info, limit=self.limit)
-        return self.scene.get_states()
+        return self.scene.get_states(*self.picture_size)
 
     def step(self, action, scene=None):
         if scene is None:
@@ -62,6 +63,7 @@ class ConflictEnv(gym.Env, ABC):
         cmd_info = scene.assign_cmd_idx(action)
         has_conflict, delta = scene.do_step()
         rewards, done = calc_reward(has_conflict, delta, cmd_info)
-        states = scene.get_states()
+        states = scene.get_states(*self.picture_size)
+        info = {'result': not has_conflict and delta >= 300}
 
-        return states, rewards, done, {'result': not has_conflict and delta >= 300}
+        return states, rewards, done, info
