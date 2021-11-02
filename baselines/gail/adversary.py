@@ -122,6 +122,6 @@ class TransitionClassifier(object):
 
         sess = tf.get_default_session()
         reward = sess.run(self.reward_op, feed_dict={self.generator_obs_ph: obs})
-        print(reward.shape)
+        # print(reward.shape)
         return reward[0][0]
 

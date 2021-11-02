@@ -26,8 +26,7 @@ def args_parser():
     parser = argparse.ArgumentParser("Tensorflow Implementation of GAIL")
     parser.add_argument('--seed', help='RNG seed', type=int, default=4321)
     parser.add_argument('--expert_path', type=str, default='E:\\Git_space\\output.avi')
-    parser.add_argument('--checkpoint_dir', help='the directory to save model', default='.\\checkpoint')
-    parser.add_argument('--log_dir', help='the directory to save log file', default='.\\log')
+    parser.add_argument('--checkpoint_dir', help='the directory to save model', default='.\\dataset\\checkpoint')
     # Task
     parser.add_argument('--task', type=str, choices=['train', 'evaluate'], default='train')
     # Optimization Configuration

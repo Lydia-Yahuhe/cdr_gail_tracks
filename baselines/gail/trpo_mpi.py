@@ -64,6 +64,7 @@ def traj_segment_generator(pi, env, reward_giver, horizon, stochastic):
         cur_ep_ret += rew
         cur_ep_true_ret += true_rew
         if new:
+            # env.render()
             ep_rets.append(cur_ep_ret)
             ep_true_rets.append(cur_ep_true_ret)
             cur_ep_ret = 0

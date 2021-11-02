@@ -59,6 +59,16 @@ class FlightPerformance:
         for k in self.__dataclass_fields__:
             setattr(self, k, getattr(other, k))
 
+    def min_max_spd(self, value, v_spd=0.0):
+        if v_spd == 0:
+            min_limit, max_limit = self.minCruiseTAS, self.maxCruiseTAS
+        elif v_spd > 0:
+            min_limit, max_limit = self.minClimbTAS, self.maxClimbTAS
+        else:
+            min_limit, max_limit = self.minDescentTAS, self.minDescentTAS
+
+        return min(max(value, min_limit), max_limit)
+
 
 @dataclass
 class AircraftType:

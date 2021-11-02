@@ -2,7 +2,7 @@ import pymongo
 import numpy as np
 from tqdm import tqdm
 
-from fltsim.model import Waypoint, Routing, Aircraft, aircraftTypes, FlightPlan, DataSet, Point2D
+from fltsim.model import Waypoint, Routing, Aircraft, aircraftTypes, FlightPlan, DataSet, Point2D, ConflictScenarioInfo
 
 
 def load_waypoint(db):
@@ -95,7 +95,7 @@ def load_and_split_data(path='scenarios_gail', size=None, split_ratio=0.8):
     else:
         size = min(size, len(data))
 
-    split_size = int(size*split_ratio)
+    split_size = int(size * split_ratio)
     return data[:split_size], data[split_size:size]
 
 
@@ -103,16 +103,15 @@ def load_data(collection):
     scenes = []
 
     data = list(database[collection].find())
-    for e in tqdm(data, desc='Loading from '+collection):
+    i = 0
+    for e in tqdm(data, desc='Loading from ' + collection):
         conflict_ac, clock = e['id'].split('-'), e['time'],
         other = [e['pos0'], e['pos1'], e['hDist'], e['vDist']]
 
         fpl_list = []
+        fpl_list_ac = []
         starts = []
         for f in e['fpl_list']:
-            if f['id'] not in conflict_ac:
-                continue
-
             # aircraft
             ac = Aircraft(id=f['aircraft'], aircraftType=aircraftTypes[f['acType']])
 
@@ -127,10 +126,19 @@ def load_data(collection):
             starts.append(startTime)
             fpl = FlightPlan(id=f['id'], aircraft=ac, routing=routing, startTime=startTime,
                              min_alt=f['min_alt'], max_alt=f['max_alt'])
-            fpl_list.append(fpl)
 
-        scenes.append(dict(time=clock, conflict_ac=conflict_ac, other=other,
-                           start=min(starts)-1, end=max(starts), fpl_list=fpl_list))
+            if f['id'] not in conflict_ac:
+                fpl_list.append(fpl)
+            else:
+                fpl_list_ac.append(fpl)
 
-    # np.random.shuffle(scenes)
+        i += 1
+        fpl_list_ac += fpl_list[:]
+        scenes.append(ConflictScenarioInfo(id='No.{}'.format(i), time=clock, conflict_ac=conflict_ac, other=other,
+                                           start=min(starts) - 1, end=max(starts), fpl_list=fpl_list_ac))
+
+        if i >= 1000:
+            break
+
+    np.random.shuffle(scenes)
     return scenes
