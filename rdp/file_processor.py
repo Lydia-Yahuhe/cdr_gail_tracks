@@ -35,7 +35,6 @@ def get_fpl_list(alt_limit=0, v_visual=False, number=-1):
     fpl_list, starts = [], []
     for row in range(1, sheet.nrows):
         [_, fpl_id, dep, arr, _, _, tracks, *_] = sheet.row_values(row)
-        print(row, fpl_id, dep, arr, end='\t')
         tracks = tracks.split('LA')[1:]
         from_to = dep + '-' + arr
 
@@ -56,14 +55,13 @@ def get_fpl_list(alt_limit=0, v_visual=False, number=-1):
         if v_visual:
             visual_flight_vertical(points, fpl_id)
 
-        print(len(points))
         if len(points) < 10:
             continue
 
+        print(row, fpl_id, dep, arr, date, len(points))
         starts.append(points[0][0])
         fpl = FlightPlan(id=fpl_id + '#' + date + '#' + from_to, ac=fpl_id,
-                         from_to=from_to, plan_tracks={},
-                         real_tracks=points)
+                         from_to=from_to, plan_tracks={}, real_tracks=points)
         fpl_list.append(fpl)
         if 0 < number <= len(fpl_list):
             break

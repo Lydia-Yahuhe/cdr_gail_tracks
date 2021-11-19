@@ -38,7 +38,7 @@ class ConflictScene:
         return self.agentSet.time
 
     def get_states(self, width, height, channel):
-        kwargs = dict(border=[108, 118, 28, 35], scale=200)
+        kwargs = dict(border=[109.3, 116, 29, 33.5], scale=100)
 
         # 轨迹点
         points = []
@@ -52,19 +52,21 @@ class ConflictScene:
         frame, _ = add_points_on_base_map(points, base_img, **kwargs)
         frame = cv2.resize(frame, (width, height))
         # print(frame.shape)
-        # cv2.imshow('image', frame)
-        # cv2.waitKey(0)
+        cv2.imshow('image', frame)
+        cv2.waitKey(100)
         return frame
 
     def do_step(self, action):
         # agent_id, idx = self.conflict_ac[action // CmdCount], action % CmdCount
-        agent_id, idx = self.conflict_ac[0], np.argmax(action)
+        action = np.clip(action, -1, 1)
+        agent_id, idx = self.conflict_ac[0], int(action*54+54)
+
         # 指令解析
         now = self.now()
         agent = self.agentSet.agents[agent_id]
         [hold, *cmd_list] = int_2_atc_cmd(now + 1, idx, agent)
         # print(now, action, hold, end=' ')
-        print(idx, hold, end=' ')
+        print(action, idx, hold, end='\t')
 
         # 执行hold，并探测冲突
         while self.now() < now + hold:

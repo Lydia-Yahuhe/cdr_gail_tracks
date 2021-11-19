@@ -1,6 +1,6 @@
-"""
+'''
 This code is highly based on https://github.com/carpedm20/deep-rl-tensorflow/blob/master/agents/statistic.py
-"""
+'''
 
 import tensorflow as tf
 import numpy as np

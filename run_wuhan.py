@@ -7,37 +7,34 @@ from rdp.model import AgentSetReal
 from fltsim.visual import cv2, add_points_on_base_map, add_lines_on_base_map
 
 
-def main(picture_size=(1400, 900), wait_time=1):
+def main(picture_size=(670, 450), wait_time=1):
     # 从excel中提取轨迹和航班信息
-    fpl_list, starts = get_fpl_list(number=200)
+    fpl_list, starts = get_fpl_list(alt_limit=6000.0, number=1000)
 
     # 构建agent set类
     agent_set = AgentSetReal(fpl_list, starts)
 
-    kwargs = dict(border=[109, 116, 27, 33.5], scale=200)
+    kwargs = dict(border=[109.3, 116, 29, 33.5], scale=100)
 
     # 定义编解码器并创建VideoWriter对象
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter('output.avi', fourcc, 20.0, picture_size)
+    out = cv2.VideoWriter('gail_video.avi', fourcc, 20.0, picture_size)
 
     # agentSet运行
     while not agent_set.all_done:
         base_img = cv2.imread('.\\dataset\\wuhan_base.jpg', cv2.IMREAD_COLOR)
 
         states = agent_set.do_step()
-        line_two = agent_set.detection_conflicts()
+        # line_two = agent_set.detection_conflicts()
 
-        if len(states) > 0:
+        if len(states) > 10:
             # base_img = add_lines_on_base_map(line_two, base_img, **kwargs)
             locations = [[key] + state for key, state in states.items()]
             frame, _ = add_points_on_base_map(locations, base_img, **kwargs)
-        else:
-            frame = base_img
-
-        frame = cv2.resize(frame, picture_size)
-        cv2.imshow('video', frame)
-        cv2.waitKey(wait_time)
-        out.write(frame)
+            frame = cv2.resize(frame, picture_size)
+            # cv2.imshow('video', frame)
+            # cv2.waitKey(wait_time)
+            out.write(frame)
 
     out.release()
     cv2.waitKey(1) & 0xFF
@@ -50,6 +47,7 @@ def main(picture_size=(1400, 900), wait_time=1):
     agent_set.flow_visual()
     print('\n>>> Agent set is visualized!')
 
+    return
     print('\n>>> Distance curves are setting to figure:')
     check_list = []
     for a0_id, sur_states in agent_set.around_agents.items():

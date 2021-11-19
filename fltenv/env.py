@@ -11,14 +11,10 @@ from fltsim.utils import build_rt_index_with_list, make_bbox, distance
 from fltsim.visual import *
 
 
-def nothing(x):
-    pass
-
-
 def calc_reward(solved, done, cmd_info):
     if not solved and done:  # failed
         reward = -5.0
-        print('({:<2})'.format(reward), end='\t')
+        print('({:<2})'.format(round(reward, 2)), end='\t')
         return reward
 
     rew = reward_for_cmd(cmd_info)
@@ -26,23 +22,31 @@ def calc_reward(solved, done, cmd_info):
         reward = 0.5+min(rew, 0)
     else:        # undone
         reward = rew
-    print('({:<2})'.format(reward), end='\t')
+    print('({:<2})'.format(round(reward, 2)), end='\t')
     return reward
 
 
 class ConflictEnv(gym.Env, ABC):
-    def __init__(self, limit=30):
+    def __init__(self, limit=30, act='Discrete'):
         self.limit = limit
         self.train, self.test = load_and_split_data('scenarios_gail_final', split_ratio=0.8)
 
-        self.picture_size = (200, 140, 3)
-        self.action_space = spaces.Discrete(CmdCount)
-        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=self.picture_size, dtype=np.float64)
+        if act == 'Discrete':
+            self.action_space = spaces.Discrete(CmdCount)
+        else:
+            self.action_space = spaces.Box(low=-1, high=1, shape=(1, ), dtype=np.float64)
 
+        self.picture_size = (width, height, channel) = (670, 450, 3)
+        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf,
+                                            shape=(height, width, channel),
+                                            dtype=np.float64)
         print('----------env----------')
         print('    train size: {:>6}'.format(len(self.train)))
         print(' validate size: {:>6}'.format(len(self.test)))
-        print('  action shape: {}'.format((self.action_space.n,)))
+        if act == 'Discrete':
+            print('  action shape: {}'.format((self.action_space.n,)))
+        else:
+            print('  action shape: {}'.format(self.action_space.shape))
         print('   state shape: {}'.format(self.observation_space.shape))
         print('-----------------------')
 
@@ -77,13 +81,68 @@ class ConflictEnv(gym.Env, ABC):
         self.result = solved
         return states, rewards, done, {'result': solved}
 
+    def evaluate(self, act, save_path='policy', **kwargs):
+        obs_array = []
+        act_array = []
+        rew_array = []
+        n_obs_array = []
+        indexes = []
+
+        size = len(self.test)
+
+        episode = 0
+        while not self.test_over():
+            print(episode, size)
+            obs_collected = {'obs': [], 'act': [], 'rew': [], 'n_obs': []}
+
+            obs, done = self.reset(test=True), False
+            result = {'result': True}
+            count = 0
+            while not done:
+                if 'gail' in save_path:
+                    action, _ = act(kwargs['stochastic'], obs)
+                    print(action)
+                    action = int(action[0]*54+54)
+                    print(action)
+                else:
+                    action = act(np.array(obs)[None])[0]
+                    print(action)
+                next_obs, rew, done, result = self.step(action)
+
+                obs_collected['obs'].append(obs)
+                obs_collected['act'].append(action)
+                obs_collected['rew'].append(rew)
+                obs_collected['n_obs'].append(next_obs)
+                obs = next_obs
+                count += 1
+
+            if result['result']:
+                obs_array += obs_collected['obs']
+                act_array += obs_collected['act']
+                rew_array += obs_collected['rew']
+                n_obs_array += obs_collected['n_obs']
+                indexes.append(count)
+
+            episode += 1
+
+        obs_array = np.array(obs_array, dtype=np.float64)
+        act_array = np.array(act_array, dtype=np.float64)
+        rew_array = np.array(rew_array, dtype=np.float64)
+        n_obs_array = np.array(n_obs_array, dtype=np.float64)
+        indexes = np.array(indexes, dtype=np.int8)
+
+        print('Success Rate is {}%'.format(len(indexes) * 100.0 / size))
+        print(obs_array.shape, act_array.shape, rew_array.shape, n_obs_array.shape)
+        np.savez(save_path+'.npz', obs=obs_array, acs=act_array, rews=rew_array, n_obs=n_obs_array, indexes=indexes)
+
     def render(self, mode='human'):
-        picture_size = (2000, 1400)
+        picture_size = (670, 450)
         wait = 1000
         if self.video_out is None:
             self.video_out = cv2.VideoWriter('env_train.avi', cv2.VideoWriter_fourcc(*'MJPG'), 20.0, picture_size)
 
-        kwargs = dict(border=[108, 118, 28, 35], scale=200)
+        # kwargs = dict(border=[108, 118, 28, 35], scale=200)
+        kwargs = dict(border=[109.3, 116, 29, 33.5], scale=100)
 
         play_speed = int(8000 / wait)
 

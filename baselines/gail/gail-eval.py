@@ -1,7 +1,7 @@
-"""
+'''
 This code is used to evalaute the imitators trained with different number of trajectories
 and plot the results in the same figure for easy comparison.
-"""
+'''
 
 import argparse
 import os
@@ -41,6 +41,7 @@ def argsparser():
 
 
 def evaluate_env(env_name, seed, policy_hidden_size, stochastic, reuse, prefix):
+
     def get_checkpoint_dir(checkpoint_list, limit, prefix):
         for checkpoint in checkpoint_list:
             if ('limitation_'+str(limit) in checkpoint) and (prefix in checkpoint):
@@ -126,19 +127,21 @@ def plot(env_name, bc_log, gail_log, stochastic):
     plt.close()
 
 
-def main():
-    args = argsparser()
+def main(args):
     U.make_session(num_cpu=1).__enter__()
     set_global_seeds(args.seed)
     print('Evaluating {}'.format(args.env))
-    bc_log = evaluate_env(args.env, args.seed, args.policy_hidden_size, args.stochastic_policy, False, 'BC')
+    bc_log = evaluate_env(args.env, args.seed, args.policy_hidden_size,
+                          args.stochastic_policy, False, 'BC')
     print('Evaluation for {}'.format(args.env))
     print(bc_log)
-    gail_log = evaluate_env(args.env, args.seed, args.policy_hidden_size, args.stochastic_policy, True, 'gail')
+    gail_log = evaluate_env(args.env, args.seed, args.policy_hidden_size,
+                            args.stochastic_policy, True, 'gail')
     print('Evaluation for {}'.format(args.env))
     print(gail_log)
     plot(args.env, bc_log, gail_log, args.stochastic_policy)
 
 
 if __name__ == '__main__':
-    main()
+    args = argsparser()
+    main(args)

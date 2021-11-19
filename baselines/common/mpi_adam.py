@@ -80,6 +80,8 @@ def test_MpiAdam():
         print(i, l)
         losslist_ref.append(l)
 
+
+
     tf.set_random_seed(0)
     tf.get_default_session().run(tf.global_variables_initializer())
 

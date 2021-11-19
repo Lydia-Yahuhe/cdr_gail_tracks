@@ -25,6 +25,5 @@
 e_Bale, 测试集(2236),    DQN, lr=5e-4, batch_size=256, exploration_fraction=0.2, steps=100000, 解脱率=63.33%, mean_rew=0.007
 n_Bule, 测试集(2236),    DQN, lr=5e-4, batch_size=16, exploration_fraction=0.2, steps=100000, 解脱率=59.21%, mean_rew=0.023
 
-todo:
 1. 以武汉空域为场景范围，制作飞行冲突
 2.

@@ -5,6 +5,7 @@ from gym import Env
 from gym.spaces import Discrete, Box
 
 
+
 class MnistEnv(Env):
     def __init__(
             self,
