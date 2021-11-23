@@ -64,8 +64,6 @@ def generate_dataset(videos_path, picture_size, frame_rate=1.0, show_image=False
             video_frame_rate = video.get(cv2.CAP_PROP_FPS)
             video.set(cv2.CAP_PROP_POS_FRAMES, frame_index + video_frame_rate // frame_rate)
             last_frame_index = video.get(cv2.CAP_PROP_FRAME_COUNT)
-            # if len(frames) >= 100:
-            #     break
 
             if frame_index >= last_frame_index:  # Video is over
                 break
@@ -73,7 +71,7 @@ def generate_dataset(videos_path, picture_size, frame_rate=1.0, show_image=False
             break
 
     frames = np.stack(frames)
-    print(frames.shape)
+    print('data_set shape:', frames.shape)
     return Dset(frames, randomize=True)
 
 

@@ -123,6 +123,9 @@ def load_data(collection):
 
             # fpl
             startTime = f['startTime']
+            # if startTime >= clock + 300:
+            #     continue
+
             starts.append(startTime)
             fpl = FlightPlan(id=f['id'], aircraft=ac, routing=routing, startTime=startTime,
                              min_alt=f['min_alt'], max_alt=f['max_alt'])
@@ -134,11 +137,11 @@ def load_data(collection):
 
         i += 1
         fpl_list_ac += fpl_list[:]
-        scenes.append(ConflictScenarioInfo(id='No.{}'.format(i), time=clock, conflict_ac=conflict_ac, other=other,
+        scenes.append(ConflictScenarioInfo(id=str(i), time=clock, conflict_ac=conflict_ac, other=other,
                                            start=min(starts) - 1, end=max(starts), fpl_list=fpl_list_ac))
 
-        if i >= 1000:
+        if i >= 125:
             break
 
-    np.random.shuffle(scenes)
+    # np.random.shuffle(scenes)
     return scenes

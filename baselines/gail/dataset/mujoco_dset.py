@@ -1,114 +1,160 @@
-'''
+"""
 Data structure of the input .npz:
 the data is save in python dictionary format with keys: 'acs', 'ep_rets', 'rews', 'obs'
 the values of each item is a list storing the expert trajectory sequentially
 a transition can be: (data['obs'][t], data['acs'][t], data['obs'][t+1]) and get reward data['rews'][t]
-'''
+"""
+import os
 
-from baselines import logger
+import cv2
 import numpy as np
 
 
 class Dset(object):
-    def __init__(self, inputs, labels, randomize):
+    def __init__(self, names, inputs, labels, randomize):
+        self.names = list(names)
         self.inputs = inputs
         self.labels = labels
-        assert len(self.inputs) == len(self.labels)
+        assert len(self.inputs) == len(self.names)
+
         self.randomize = randomize
         self.num_pairs = len(inputs)
-        self.init_pointer()
+        self.pointer = None
 
-    def init_pointer(self):
+        self.__init_pointer()
+
+    def __init_pointer(self):
         self.pointer = 0
         if self.randomize:
             idx = np.arange(self.num_pairs)
             np.random.shuffle(idx)
-            self.inputs = self.inputs[idx, :]
-            self.labels = self.labels[idx,]
+            self.inputs = self.inputs[idx]
+            self.labels = self.labels[idx]
+            self.names = [self.names[i] for i in idx]
 
-    def get_next_batch(self, batch_size):
+    def get_next_batch(self, batch_samples):
         # if batch_size is negative -> return all
-        if batch_size < 0:
-            return self.inputs, self.labels
-        if self.pointer + batch_size >= self.num_pairs:
-            self.init_pointer()
-        end = self.pointer + batch_size
-        inputs = self.inputs[self.pointer:end, :]
-        labels = self.labels[self.pointer:end,]
-        self.pointer = end
+        if isinstance(batch_samples, int):
+            batch_size = batch_samples
+            if batch_size < 0:
+                return self.inputs, self.labels
+
+            if self.pointer + batch_size >= self.num_pairs:
+                self.__init_pointer()
+            end = self.pointer + batch_size
+            inputs = self.inputs[self.pointer:end]
+            labels = self.labels[self.pointer:end]
+            self.pointer = end
+            return inputs, labels
+
+        idx = []
+        for name in batch_samples:
+            idx.append(-1 if name not in self.names else self.names.index(name))
+        inputs = self.inputs[idx]
+        labels = self.labels[idx]
         return inputs, labels
 
 
 class Mujoco_Dset(object):
-    def __init__(self, expert_path, train_fraction=0.7, traj_limitation=-1, randomize=True):
-        traj_data = np.load(expert_path)
-        if traj_limitation < 0:
-            traj_limitation = len(traj_data['obs'])
-        obs = traj_data['obs'][:traj_limitation]
-        acs = traj_data['acs'][:traj_limitation]
+    def __init__(self, expert_path, picture_size, randomize=True):
+        width, height, channel = picture_size
 
-        # obs, acs: shape (N, L, ) + S where N = # episodes, L = episode length
-        # and S is the environment observation/action space.
-        # Flatten to (N * L, prod(S))
-        if len(obs.shape) > 2:
-            self.obs = np.reshape(obs, [-1, np.prod(obs.shape[2:])])
-            self.acs = np.reshape(acs, [-1, np.prod(acs.shape[2:])])
-        else:
-            self.obs = np.vstack(obs)
-            self.acs = np.vstack(acs)
+        frames, nums, actions = [], [], []
+        for dir_or_file in os.listdir(expert_path):
+            picture_path = os.path.join(expert_path, dir_or_file)
 
-        # self.rets = traj_data['ep_rets'][:traj_limitation]
-        # self.avg_ret = sum(self.rets)/len(self.rets)
-        # self.std_ret = np.std(np.array(self.rets))
-        if len(self.acs) > 2:
-            self.acs = np.squeeze(self.acs)
-        assert len(self.obs) == len(self.acs)
-        self.num_traj = min(traj_limitation, len(traj_data['obs']))
-        self.num_transition = len(self.obs)
-        self.randomize = randomize
-        self.dset = Dset(self.obs, self.acs, self.randomize)
-        # for behavior cloning
-        self.train_set = Dset(self.obs[:int(self.num_transition*train_fraction), :],
-                              self.acs[:int(self.num_transition*train_fraction),],
-                              self.randomize)
-        self.val_set = Dset(self.obs[int(self.num_transition*train_fraction):, :],
-                            self.acs[int(self.num_transition*train_fraction):,],
-                            self.randomize)
-        self.log_info()
+            if not dir_or_file.endswith('.jpg'):
+                print(dir_or_file)
+                continue
 
-    def log_info(self):
-        logger.log("Total trajectories: %d" % self.num_traj)
-        logger.log("Total transitions: %d" % self.num_transition)
-        # logger.log("Average returns: %f" % self.avg_ret)
-        # logger.log("Std for returns: %f" % self.std_ret)
+            frame = cv2.imread(picture_path, cv2.IMREAD_COLOR)
+            frame = cv2.resize(frame, (width, height))
+            frames.append(frame)
 
-    def get_next_batch(self, batch_size, split=None):
-        if split is None:
-            return self.dset.get_next_batch(batch_size)
-        elif split == 'train':
-            return self.train_set.get_next_batch(batch_size)
-        elif split == 'val':
-            return self.val_set.get_next_batch(batch_size)
-        else:
-            raise NotImplementedError
+            [num, action, clock] = dir_or_file.split('.')[1].split('_')
+            nums.append(num)
+            actions.append([int(action), int(clock)])
 
-    def plot(self):
-        import matplotlib.pyplot as plt
-        plt.hist(self.rets)
-        plt.savefig("histogram_rets.png")
-        plt.close()
+        frames_array = np.array(frames)
+        actions_array = np.array(actions)
+
+        print(frames_array.shape)
+        print(nums)
+        print(actions_array)
+        self.dset = Dset(nums, frames_array, actions_array, randomize)
+
+    def get_next_batch(self, batch_samples):
+        return self.dset.get_next_batch(batch_samples=batch_samples)
+
+    def get_one_batch(self, num):
+        obses, actions = self.dset.get_next_batch(batch_samples=[num])
+        return obses[0], actions[0]
 
 
-def test(expert_path, traj_limitation, plot):
-    dset = Mujoco_Dset(expert_path, traj_limitation=traj_limitation)
-    if plot:
-        dset.plot()
-
-if __name__ == '__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--expert_path", type=str, default="../data/deterministic.trpo.Hopper.0.00.npz")
-    parser.add_argument("--traj_limitation", type=int, default=None)
-    parser.add_argument("--plot", type=bool, default=False)
-    args = parser.parse_args()
-    test(args.expert_path, args.traj_limitation, args.plot)
+# class Mujoco_Dset(object):
+#     def __init__(self, expert_path, picture_size, show_image=False, frame_rate=20/74, randomize=True):
+#         frames_list, nums, actions = [], [], []
+#         for dir_or_file in os.listdir(expert_path):
+#             video_path = os.path.join(expert_path, dir_or_file)
+#             if not dir_or_file.endswith('.avi'):
+#                 print(dir_or_file)
+#                 continue
+#
+#             # print('Open: ', video_path)
+#             frames = []
+#             video = cv2.VideoCapture(video_path)
+#             while video.isOpened():
+#                 success, frame = video.read()
+#
+#                 if success:
+#                     frame = self.preprocess_image(frame, picture_size, show=show_image)
+#                     frames.append(frame)
+#
+#                     frame_index = video.get(cv2.CAP_PROP_POS_FRAMES)
+#                     video_frame_rate = video.get(cv2.CAP_PROP_FPS)
+#                     video.set(cv2.CAP_PROP_POS_FRAMES, frame_index + video_frame_rate // frame_rate)
+#                     last_frame_index = video.get(cv2.CAP_PROP_FRAME_COUNT)
+#                     # print(frame_index, video_frame_rate, last_frame_index)
+#
+#                     if frame_index >= last_frame_index:  # Video is over
+#                         break
+#                 else:
+#                     break
+#
+#             frames_list.append(frames[-1])
+#             [num, action] = dir_or_file.split('.')[1].split('_')
+#             nums.append(num)
+#             actions.append(int(action))
+#
+#         cv2.waitKey(1) & 0xFF
+#         cv2.destroyAllWindows()
+#
+#         frames_array = np.array(frames_list)
+#         actions_array = np.array(actions)
+#
+#         print(frames_array.shape)
+#         print(nums)
+#         self.dset = Dset(nums, frames_array, actions_array, randomize)
+#
+#     def preprocess_image(self, image, size, show=False):
+#         """ Changes size, makes image monochromatic """
+#         width, height, channel = size
+#         image = cv2.resize(image, (width, height))
+#         if channel == 2:
+#             color_style = cv2.COLOR_BGR2GRAY
+#         else:
+#             color_style = cv2.IMREAD_COLOR
+#         image = cv2.cvtColor(image, color_style)
+#         image = np.array(image, dtype=np.uint8)
+#
+#         if show:
+#             cv2.imshow('figure', image)
+#             cv2.waitKey(1)
+#         return image
+#
+#     def get_next_batch(self, batch_samples):
+#         return self.dset.get_next_batch(batch_samples=batch_samples)
+#
+#     def get_one_batch(self, num):
+#         obses, actions = self.dset.get_next_batch(batch_samples=[num])
+#         return obses[0], actions[0]

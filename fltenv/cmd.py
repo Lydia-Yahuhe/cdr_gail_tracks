@@ -1,7 +1,7 @@
 from fltsim.aircraft import atccmd
 from fltsim.utils import convert_with_align
 
-CmdCount = 108
+CmdCount = 16*9
 KT2MPS = 0.514444444444444
 NM2M = 1852
 flight_level = [i*300.0 for i in range(29)]
@@ -69,7 +69,7 @@ def check_cmd(cmd, a, check_dict):
     raise NotImplementedError
 
 
-def int_2_atc_cmd(time, idx, target):
+def int_2_atc_cmd(time: int, idx: int, target):
     # # 将idx转化成三进制数
     # [alt_idx, spd_idx, hdg_idx, time_idx] = convert_with_align(idx, x=3, align=4)
     # # print(idx, alt_idx, spd_idx, hdg_idx, time_idx)
@@ -98,7 +98,7 @@ def int_2_atc_cmd(time, idx, target):
     # print(idx, alt_idx, spd_idx, hdg_idx, time_idx)
 
     # time cmd
-    time_cmd = 180-int(time_idx) * 15
+    time_cmd = 240-int(time_idx) * 15
 
     [alt_idx, hdg_idx] = convert_with_align(cmd_idx, x=3, align=2)
     # alt cmd

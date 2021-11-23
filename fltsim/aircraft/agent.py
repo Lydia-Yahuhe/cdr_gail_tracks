@@ -51,6 +51,9 @@ class AircraftAgent:
                 reset_guidance_with_fpl(guidance, self.fpl)
                 reset_status_with_fpl(status, self.fpl)
                 reset_profile_with_fpl(profile, self.fpl)
+                # 记录轨迹
+                if clock % interval == 0:
+                    self.tracks[clock] = self.get_x_data()
                 continue
 
             if self.is_enroute():
@@ -60,7 +63,7 @@ class AircraftAgent:
                 update_profile(profile, status)
 
                 # 记录轨迹
-                if clock % interval == 0:
+                if self.is_enroute() and clock % interval == 0:
                     self.tracks[clock] = self.get_x_data()
 
     def assign_cmd(self, cmd):
