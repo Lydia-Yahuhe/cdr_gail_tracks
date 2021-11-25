@@ -56,32 +56,41 @@ class Dset(object):
 
 
 class Mujoco_Dset(object):
+    # def __init__(self, expert_path, picture_size, randomize=True):
+    #     width, height, channel = picture_size
+    #
+    #     frames, nums, actions = [], [], []
+    #     for dir_or_file in os.listdir(expert_path):
+    #         picture_path = os.path.join(expert_path, dir_or_file)
+    #
+    #         if not dir_or_file.endswith('.jpg'):
+    #             print(dir_or_file)
+    #             continue
+    #
+    #         frame = cv2.imread(picture_path, cv2.IMREAD_COLOR)
+    #         frame = cv2.resize(frame, (width, height))
+    #         frames.append(frame)
+    #
+    #         [num, action, clock] = dir_or_file.split('.')[1].split('_')
+    #         nums.append(num)
+    #         actions.append([int(action), int(clock)])
+    #
+    #     frames_array = np.array(frames)
+    #     actions_array = np.array(actions)
+    #
+    #     print(frames_array.shape)
+    #     print(nums)
+    #     print(actions_array)
+    #     self.dset = Dset(nums, frames_array, actions_array, randomize)
+
     def __init__(self, expert_path, picture_size, randomize=True):
-        width, height, channel = picture_size
-
-        frames, nums, actions = [], [], []
-        for dir_or_file in os.listdir(expert_path):
-            picture_path = os.path.join(expert_path, dir_or_file)
-
-            if not dir_or_file.endswith('.jpg'):
-                print(dir_or_file)
-                continue
-
-            frame = cv2.imread(picture_path, cv2.IMREAD_COLOR)
-            frame = cv2.resize(frame, (width, height))
-            frames.append(frame)
-
-            [num, action, clock] = dir_or_file.split('.')[1].split('_')
-            nums.append(num)
-            actions.append([int(action), int(clock)])
-
-        frames_array = np.array(frames)
-        actions_array = np.array(actions)
-
-        print(frames_array.shape)
+        data = np.load(expert_path)
+        nums = list(data['num'])
         print(nums)
-        print(actions_array)
-        self.dset = Dset(nums, frames_array, actions_array, randomize)
+        frames = data['obs']
+        actions = data['acs']
+        print(actions)
+        self.dset = Dset(nums, frames, actions, randomize)
 
     def get_next_batch(self, batch_samples):
         return self.dset.get_next_batch(batch_samples=batch_samples)

@@ -455,14 +455,12 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
 
         # Create callable functions
         train = U.function(
-            inputs=[
-                obs_t_input,
-                act_t_ph,
-                rew_t_ph,
-                obs_tp1_input,
-                done_mask_ph,
-                importance_weights_ph
-            ],
+            inputs=[obs_t_input,
+                    act_t_ph,
+                    rew_t_ph,
+                    obs_tp1_input,
+                    done_mask_ph,
+                    importance_weights_ph],
             outputs=[td_error, weighted_error],
             updates=[optimize_expr]
         )

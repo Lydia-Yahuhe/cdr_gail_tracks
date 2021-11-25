@@ -8,6 +8,7 @@ import numpy as np
 from baselines import logger
 from baselines.common.mpi_adam import MpiAdam
 from baselines.common import tf_util as U
+from baselines.common.mpi_running_mean_std import RunningMeanStd
 
 
 def logsigmoid(a):
@@ -61,8 +62,8 @@ class TransitionClassifier(object):
         self.loss_name = ["generator_loss", "expert_loss", "entropy", "entropy_loss", "generator_acc", "expert_acc", "total_loss"]
 
         # Build Reward for policy
-        # self.reward_op = -tf.log(1 - tf.nn.sigmoid(generator_logits) + 1e-8)
-        self.reward_op = -(1 - tf.nn.sigmoid(generator_logits))
+        self.reward_op = -tf.log(1 - tf.nn.sigmoid(generator_logits) + 1e-8)
+        # self.reward_op = -(1 - tf.nn.sigmoid(generator_logits))
 
         var_list = self.get_trainable_variables()
         self.adam = MpiAdam(var_list, epsilon=1e-5)
@@ -75,29 +76,32 @@ class TransitionClassifier(object):
             if reuse:
                 tf.get_variable_scope().reuse_variables()
 
-            x = obs_ph
-            print('adversary', x.shape)
+            # print('adversary', x.shape)
+            #
+            # for filters, strides in [(3, 2), (3, 2)]:
+            #     print(filters, strides, x.shape, end=', ')
+            #     x = tf.layers.conv2d(
+            #         x,
+            #         filters=filters,
+            #         kernel_size=(5, 5),
+            #         strides=strides,
+            #         padding='same',
+            #         activation=tf.nn.relu,
+            #         kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
+            #         kernel_regularizer=tf.contrib.layers.l2_regularizer(0.001)
+            #     )
+            #     print('conv2d', x.shape, end=', ')
+            #     x = tf.layers.batch_normalization(x, training=is_training)
+            #     print('batch', x.shape, end=', ')
+            #     x = tf.layers.max_pooling2d(x, 2, 2)
+            #     print('pooling', x.shape)
+            #
+            # x = tf.layers.flatten(x)
+            # print(x.shape)
 
-            for filters, strides in [(3, 2), (3, 2)]:
-                print(filters, strides, x.shape, end=', ')
-                x = tf.layers.conv2d(
-                    x,
-                    filters=filters,
-                    kernel_size=(5, 5),
-                    strides=strides,
-                    padding='same',
-                    activation=tf.nn.relu,
-                    kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
-                    kernel_regularizer=tf.contrib.layers.l2_regularizer(0.001)
-                )
-                print('conv2d', x.shape, end=', ')
-                x = tf.layers.batch_normalization(x, training=is_training)
-                print('batch', x.shape, end=', ')
-                x = tf.layers.max_pooling2d(x, 2, 2)
-                print('pooling', x.shape)
-
-            x = tf.layers.flatten(x)
-            print(x.shape)
+            with tf.variable_scope("obfilter"):
+                self.obs_rms = RunningMeanStd(shape=self.observation_shape)
+            x = (obs_ph - self.obs_rms.mean) / self.obs_rms.std
             x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.tanh)
             x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.tanh)
             logits = tf.contrib.layers.fully_connected(x, 1, activation_fn=tf.identity)
@@ -111,7 +115,7 @@ class TransitionClassifier(object):
 
     def get_reward(self, obs):
         sess = tf.get_default_session()
-        if len(obs.shape) == 3:
+        if len(obs.shape) == 1:
             obs = np.expand_dims(obs, 0)
         feed_dict = {self.generator_obs_ph: obs}
         reward = sess.run(self.reward_op, feed_dict)

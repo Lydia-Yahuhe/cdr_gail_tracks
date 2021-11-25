@@ -247,7 +247,7 @@ def learn(env,
     # print('load variables successfully!')
     update_target()
 
-    episode_rewards, true_rewards = [0.0], [0.0]
+    episode_rewards, true_rewards, expert_rewards = [0.0], [0.0], [0.0]
     losses, d_losses = [], []
 
     obs = env.reset()
@@ -293,19 +293,21 @@ def learn(env,
         # cv2.imwrite("tmp/No.{}_obs_s_{}_{}_{}.jpg".format(num, env_action, env.scene.now(), round(rew, 4)), new_obs)
         # cv2.imwrite("tmp/No.{}_obs_e_{}_{}_{}.jpg".format(num, act_e, clock, round(rew_e, 4)), obs_e)
         # print(clock, env.scene.now(), (new_obs == obs_e).all())
-        print('{:>5d}, {:>+7.4f}, {:>+7.4f}, {:>4d}, {:>4d}'.format(
-            int(num), round(rew, 4), round(rew_e, 4), act_e, env_action), end=', ')
+        print('{:>5d}, {:>+7.4f}, {:>+7.4f}, {:>4d}, {:>4d}, {:>5d}, {:>5d}'.format(
+            int(num), round(rew, 4), round(rew_e, 4), env_action, act_e, env.scene.now(), clock), end=', ')
 
         replay_buffer.add(num, obs, action, rew, new_obs, float(done))
         obs = new_obs
 
         episode_rewards[-1] += rew
         true_rewards[-1] += true_rew
+        expert_rewards[-1] += rew_e
         num_episodes = len(episode_rewards)
         if done:
             obs = env.reset()
             episode_rewards.append(0.0)
             true_rewards.append(0.0)
+            expert_rewards.append(0.0)
             print('episode: {}'.format(num_episodes))
             reset = True
 
@@ -323,21 +325,27 @@ def learn(env,
                 new_priorities = np.abs(td_errors) + prioritized_replay_eps
                 replay_buffer.update_priorities(batch_idxes, new_priorities)
 
-            if t % (train_freq * 100) == 0:
-                d_batch_size = len(nums) // 2
-                for ob_batch in iterbatches(obses_tp1, batch_size=d_batch_size):
-                    real_batch_size = len(ob_batch)
-                    obs_e, _ = expert_dataset.get_next_batch(batch_samples=nums[:real_batch_size])
-                    print(real_batch_size, ob_batch.shape, obs_e.shape)
+            d_step = 3
+            experience = replay_buffer.sample(batch_size*d_step, beta=beta_schedule.value(t))
+            (nums, _, _, _, obses_tp1, _, _, _) = experience
 
-                    *newlosses, g = reward_giver.lossandgrad(ob_batch, obs_e)
-                    reward_giver.adam.update(g, 1e-3)
-                    d_losses.append(newlosses)
+            for ob_batch in iterbatches(obses_tp1, batch_size=len(nums) // d_step):
+                real_batch_size = len(ob_batch)
+                obs_e, _ = expert_dataset.get_next_batch(batch_samples=nums[:real_batch_size])
+                # print(real_batch_size, ob_batch.shape, obs_e.shape)
+                if hasattr(reward_giver, "obs_rms"):
+                    reward_giver.obs_rms.update(np.concatenate((ob_batch, obs_e), 0))
+
+                *newlosses, g = reward_giver.lossandgrad(ob_batch, obs_e)
+                reward_giver.adam.update(g, 1e-4)
+                d_losses.append(newlosses)
 
         if t > learning_starts and t % target_network_update_freq == 0:
             # Update target network periodically.
             update_target()
-            act.save(".\\dataset\\my_model.pkl")
+
+            if t % 5000 == 0:
+                act.save(".\\dataset\\my_model_{}.pkl".format(t))
 
         if done and num_episodes % print_freq == 0:
             if len(d_losses) > 0:
@@ -348,6 +356,7 @@ def learn(env,
             logger.record_tabular("episodes", num_episodes)
             logger.record_tabular("mean 100 episode reward", np.mean(episode_rewards[-101:-1]))
             logger.record_tabular("mean 100 true reward", np.mean(true_rewards[-101:-1]))
+            logger.record_tabular("mean 100 expert reward", np.mean(expert_rewards[-101:-1]))
             logger.record_tabular("mean 100 loss", np.mean(losses))
             logger.record_tabular("% time spent exploring", int(100 * exploration.value(t)))
             logger.dump_tabular()

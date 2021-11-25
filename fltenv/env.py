@@ -24,9 +24,13 @@ def calc_reward(solved, cmd_info):
 
 
 class ConflictEnv(gym.Env, ABC):
-    def __init__(self, limit=30, act='Discrete'):
+    def __init__(self, limit=30, act='Discrete', reverse=False):
         self.limit = limit
-        self.train, self.test = load_and_split_data('scenarios_gail_final', split_ratio=0.8)
+
+        if reverse:
+            self.test, self.train = load_and_split_data('scenarios_gail_final', split_ratio=0.8)
+        else:
+            self.train, self.test = load_and_split_data('scenarios_gail_final', split_ratio=0.8)
 
         if act == 'Discrete':
             self.action_space = spaces.Discrete(CmdCount)
@@ -34,9 +38,11 @@ class ConflictEnv(gym.Env, ABC):
             self.action_space = spaces.Box(low=-1, high=1, shape=(1, ), dtype=np.float64)
 
         self.picture_size = (width, height, channel) = (670, 450, 3)
-        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf,
-                                            shape=(height, width, channel),
-                                            dtype=np.float64)
+        # self.observation_space = spaces.Box(low=-np.inf, high=+np.inf,
+        #                                     shape=(height, width, channel),
+        #                                     dtype=np.float64)
+
+        self.observation_space = spaces.Box(low=-np.inf, high=+np.inf, shape=(350, ), dtype=np.float64)
         print('----------env----------')
         print('    train size: {:>6}'.format(len(self.train)))
         print(' validate size: {:>6}'.format(len(self.test)))
@@ -79,6 +85,7 @@ class ConflictEnv(gym.Env, ABC):
         return states, rewards, True, {'result': solved}
 
     def evaluate(self, act, save_path='policy', **kwargs):
+        num_array = []
         obs_array = []
         act_array = []
         rew_array = []
@@ -90,7 +97,7 @@ class ConflictEnv(gym.Env, ABC):
         episode = 0
         while not self.test_over():
             print(episode, size)
-            obs_collected = {'obs': [], 'act': [], 'rew': [], 'n_obs': []}
+            obs_collected = {'num': [], 'obs': [], 'act': [], 'rew': [], 'n_obs': []}
 
             obs, done = self.reset(test=True), False
             result = {'result': True}
@@ -98,14 +105,18 @@ class ConflictEnv(gym.Env, ABC):
             while not done:
                 if 'gail' in save_path:
                     action, _ = act(kwargs['stochastic'], obs)
-                    print(action)
-                    action = int(action[0]*54+54)
-                    print(action)
-                else:
+                    action = np.argmax(action)
+                    print('gail', action)
+                    # action = int(action[0]*54+54)
+                elif 'dqn' in save_path:
                     action = act(np.array(obs)[None])[0]
-                    print(action)
+                    print('dqn', action)
+                else:
+                    action = np.random.randint(0, CmdCount)
+                    print('random', action)
                 next_obs, rew, done, result = self.step(action)
 
+                obs_collected['num'].append(self.scene.info.id)
                 obs_collected['obs'].append(obs)
                 obs_collected['act'].append(action)
                 obs_collected['rew'].append(rew)
@@ -114,6 +125,8 @@ class ConflictEnv(gym.Env, ABC):
                 count += 1
 
             if result['result']:
+                # self.render()
+                num_array += obs_collected['num']
                 obs_array += obs_collected['obs']
                 act_array += obs_collected['act']
                 rew_array += obs_collected['rew']
@@ -122,6 +135,7 @@ class ConflictEnv(gym.Env, ABC):
 
             episode += 1
 
+        num_array = np.array(num_array)
         obs_array = np.array(obs_array, dtype=np.float64)
         act_array = np.array(act_array, dtype=np.float64)
         rew_array = np.array(rew_array, dtype=np.float64)
@@ -130,7 +144,9 @@ class ConflictEnv(gym.Env, ABC):
 
         print('Success Rate is {}%'.format(len(indexes) * 100.0 / size))
         print(obs_array.shape, act_array.shape, rew_array.shape, n_obs_array.shape)
-        np.savez(save_path+'.npz', obs=obs_array, acs=act_array, rews=rew_array, n_obs=n_obs_array, indexes=indexes)
+        np.savez(save_path+'.npz',
+                 num=num_array, obs=obs_array, acs=act_array,
+                 rews=rew_array, n_obs=n_obs_array, indexes=indexes)
 
     def render(self, mode='human', **kwargs):
         picture_size = (670, 450)

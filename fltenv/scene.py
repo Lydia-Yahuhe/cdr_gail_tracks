@@ -2,6 +2,8 @@ import cv2
 import time
 from contextlib import contextmanager
 
+import numpy as np
+
 from baselines.common import colorize
 
 from fltenv.agent_Set import AircraftAgentSet
@@ -61,25 +63,41 @@ class ConflictScene:
     def now(self):
         return self.agentSet.time
 
-    def get_states(self, width, height, channel, show=False):
-        kwargs = dict(border=[109.3, 116, 29, 33.5], scale=100)
+    # def get_states(self, width, height, channel, show=False):
+    #     kwargs = dict(border=[109.3, 116, 29, 33.5], scale=100)
+    #
+    #     # 轨迹点
+    #     points = []
+    #     for [agent, *state] in self.agentSet.agent_en_:
+    #         points.append([agent, agent in self.conflict_ac] + state)
+    #
+    #     # 武汉扇区的底图（有航路）
+    #     base_img = cv2.imread('dataset/wuhan_base.jpg', cv2.IMREAD_COLOR)
+    #
+    #     # 将当前时刻所有航空器的位置和状态放在图上
+    #     frame, _ = add_points_on_base_map(points, base_img, **kwargs)
+    #     frame = cv2.resize(frame, (width, height))
+    #
+    #     if show:
+    #         cv2.imshow('image', frame)
+    #         cv2.waitKey(100)
+    #     return frame
 
-        # 轨迹点
-        points = []
+    def get_states(self, width, height, channel, limit=50):
+        states = [[0.0 for _ in range(7)] for _ in range(limit)]
+
+        j = 0
         for [agent, *state] in self.agentSet.agent_en_:
-            points.append([agent, agent in self.conflict_ac] + state)
-
-        # 武汉扇区的底图（有航路）
-        base_img = cv2.imread('dataset/wuhan_base.jpg', cv2.IMREAD_COLOR)
-
-        # 将当前时刻所有航空器的位置和状态放在图上
-        frame, _ = add_points_on_base_map(points, base_img, **kwargs)
-        frame = cv2.resize(frame, (width, height))
-
-        if show:
-            cv2.imshow('image', frame)
-            cv2.waitKey(100)
-        return frame
+            ele = [int(agent in self.conflict_ac),
+                   state[0] - self.conflict_pos[0],
+                   state[1] - self.conflict_pos[1],
+                   (state[2] - self.conflict_pos[2]) / 3000,
+                   (state[3] - 150) / 100,
+                   state[4] / 20,
+                   state[5] / 180]
+            states[min(limit - 1, j)] = ele
+            j += 1
+        return np.concatenate(states)
 
     def do_step(self, action):
         agent_id, idx = self.conflict_ac[0], action
