@@ -39,7 +39,7 @@ def train(test=False, path='dqn_policy'):
         act = deepq.learn(env,
                           network=network,
                           total_timesteps=0,
-                          load_path=root+".pkl")
+                          load_path=root+"_{}.pkl".format(10000))
         env.evaluate(act, save_path=path)
     env.close()
 
