@@ -326,8 +326,8 @@ def learn(env,
                 replay_buffer.update_priorities(batch_idxes, new_priorities)
 
             d_step = 3
-            experience = replay_buffer.sample(batch_size*d_step, beta=beta_schedule.value(t))
-            (nums, _, _, _, obses_tp1, _, _, _) = experience
+            experience = replay_buffer.sample(batch_size*d_step)
+            (nums, _, _, _, obses_tp1, *_) = experience
 
             for ob_batch in iterbatches(obses_tp1, batch_size=len(nums) // d_step):
                 real_batch_size = len(ob_batch)

@@ -9,7 +9,7 @@ root = ".\\dataset\\my_model"
 
 
 def train(test=False, path='dqn_policy'):
-    env = ConflictEnv(limit=0)
+    env = ConflictEnv(limit=0, reverse='evaluate' in path)
     # dataset = Mujoco_Dset(expert_path='C:\\Users\\lydia\\Desktop\\Workspace\\data set\\Videos',
     #                       picture_size=env.picture_size)
     dataset = Mujoco_Dset(expert_path='dataset\\dqn_policy_with_tracks.npz',
@@ -21,8 +21,8 @@ def train(test=False, path='dqn_policy'):
         act = deepq.learn(
             env,
             network=network,  # 隐藏节点，隐藏层数
-            lr=1e-4,
-            batch_size=16,
+            lr=1e-3,
+            batch_size=64,
             total_timesteps=100000,
             buffer_size=1000,
 
@@ -31,7 +31,7 @@ def train(test=False, path='dqn_policy'):
             reward_giver=reward_giver,
             expert_dataset=dataset,
 
-            prioritized_replay=True
+            # prioritized_replay=True
         )
         print('Save model to my_model.pkl')
         act.save(root+'.pkl')
@@ -39,13 +39,15 @@ def train(test=False, path='dqn_policy'):
         act = deepq.learn(env,
                           network=network,
                           total_timesteps=0,
-                          load_path=root+"_{}.pkl".format(10000))
+                          load_path=root+"_{}.pkl".format(path.split('_')[-1]))
         env.evaluate(act, save_path=path)
     env.close()
 
 
 if __name__ == '__main__':
     train()
-    # train(test=True, path='random_policy')
+    # train(test=True, path='dqn_policy_evaluate_20000')
+    # train(test=True, path='dqn_policy_test_20000')
+
     # for key, value in np.load('.\\dataset\\dqn_policy.npz').items():
     #     print(key, value.shape, value)

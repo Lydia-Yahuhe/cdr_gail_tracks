@@ -39,15 +39,16 @@ def train(test=False, path='dqn_policy'):
         act = deepq.learn(env,
                           network=network,
                           total_timesteps=0,
-                          load_path=root+"_{}.pkl".format(10000))
+                          load_path=root+"_{}.pkl".format(path.split('_')[-1]))
         env.evaluate(act, save_path=path)
     env.close()
 
 
 if __name__ == '__main__':
     # train()
-    # train(test=True, path='dqn_policy_evaluate')
-    train(test=True, path='dqn_policy_test')
+    x = 55000
+    # train(test=True, path='dqn_policy_evaluate_{}'.format(x))
+    train(test=True, path='dqn_policy_test_{}'.format(x))
 
     # for key, value in np.load('.\\dataset\\dqn_policy.npz').items():
     #     print(key, value.shape, value)

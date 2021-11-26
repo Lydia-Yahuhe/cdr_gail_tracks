@@ -62,8 +62,8 @@ class TransitionClassifier(object):
         self.loss_name = ["generator_loss", "expert_loss", "entropy", "entropy_loss", "generator_acc", "expert_acc", "total_loss"]
 
         # Build Reward for policy
-        self.reward_op = -tf.log(1 - tf.nn.sigmoid(generator_logits) + 1e-8)
-        # self.reward_op = -(1 - tf.nn.sigmoid(generator_logits))
+        # self.reward_op = -tf.log(1 - tf.nn.sigmoid(generator_logits) + 1e-8)
+        self.reward_op = -(1 - tf.nn.sigmoid(generator_logits))
 
         var_list = self.get_trainable_variables()
         self.adam = MpiAdam(var_list, epsilon=1e-5)
@@ -102,8 +102,8 @@ class TransitionClassifier(object):
             with tf.variable_scope("obfilter"):
                 self.obs_rms = RunningMeanStd(shape=self.observation_shape)
             x = (obs_ph - self.obs_rms.mean) / self.obs_rms.std
-            x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.tanh)
-            x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.tanh)
+            x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.relu)
+            x = tf.contrib.layers.fully_connected(x, hidden_size, activation_fn=tf.nn.relu)
             logits = tf.contrib.layers.fully_connected(x, 1, activation_fn=tf.identity)
         return logits
 

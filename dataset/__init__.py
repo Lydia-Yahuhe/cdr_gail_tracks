@@ -111,8 +111,9 @@ def visual_action_distribution():
     print('LP SR:', len(dqn_rew) / size * 100, np.mean(dqn_rew))
 
     # Imitation Policy
-    # gail_policy = np.load('dqn_policy_evaluate.npz')
-    gail_policy = np.load('dqn_policy_test.npz')
+    x = 40000
+    # gail_policy = np.load('dqn_policy_evaluate_{}.npz'.format(x))
+    gail_policy = np.load('dqn_policy_test_{}.npz'.format(x))
 
     gail_rew = gail_policy['rews']
     print('IP SR:', len(gail_rew) / size * 100, np.mean(gail_rew))
